@@ -49,3 +49,30 @@ export interface SlabConfig {
   token: string;
   baseUrl: string;
 }
+
+export type PostLinkAccess = "INTERNAL" | "INTERNAL_VIEW" | "PUBLIC" | "PUBLIC_EDIT" | "DISABLED";
+export type PostContentFormat = "HTML" | "MARKDOWN";
+
+export interface SlabPostStateUpdate {
+  postId: string;
+  ownerId?: string;
+  archived?: boolean;
+  published?: boolean;
+  linkAccess?: PostLinkAccess;
+  bannerUrl?: string;
+}
+
+export interface SlabCreatePostInput {
+  title: string;
+  topicId?: string;
+  content?: string;     // mutually exclusive with templateId
+  templateId?: string;
+}
+
+export interface SlabSyncPostInput {
+  externalId: string;
+  format: PostContentFormat;
+  content: string;
+  editUrl: string;
+  readUrl?: string;
+}

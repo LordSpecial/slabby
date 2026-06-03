@@ -4,8 +4,15 @@
  * for post bodies.
  */
 
-import { Context, Effect, Layer } from "effect";
-import type { SlabPost, SlabSearchResult, SlabListResult } from "./types.ts";
+import { Context, Data, Effect, Layer } from "effect";
+import type {
+  SlabPost,
+  SlabSearchResult,
+  SlabListResult,
+  SlabPostStateUpdate,
+  SlabCreatePostInput,
+  SlabSyncPostInput,
+} from "./types.ts";
 import { SlabClientService } from "./client.ts";
 import type { SlabApiError, SlabNetworkError } from "./client.ts";
 import {
@@ -14,8 +21,14 @@ import {
   SEARCH_POSTS_QUERY,
   GET_TOPIC_POSTS_QUERY,
   GET_ORGANIZATION_POSTS_QUERY,
+  CREATE_POST_MUTATION,
+  UPDATE_POST_STATE_MUTATION,
+  SYNC_POST_MUTATION,
+  ADD_TOPIC_TO_POST_MUTATION,
+  REMOVE_TOPIC_FROM_POST_MUTATION,
 } from "./graphql.ts";
 import { contentToMarkdown, DeltaConversionError } from "./delta/delta-to-markdown.ts";
+import { markdownToDelta } from "./delta/markdown-to-delta.ts";
 import type { Delta as DeltaShape } from "./delta/markdown-to-delta.ts";
 import {
   buildFindReplaceDelta,
@@ -25,7 +38,16 @@ import {
   DeltaEditError,
 } from "./delta/edits.ts";
 
-export type PostsError = SlabApiError | SlabNetworkError | DeltaConversionError | DeltaEditError;
+export class CreatePostInvalidArgsError extends Data.TaggedError("CreatePostInvalidArgsError")<{
+  readonly message: string;
+}> {}
+
+export type PostsError =
+  | SlabApiError
+  | SlabNetworkError
+  | DeltaConversionError
+  | DeltaEditError
+  | CreatePostInvalidArgsError;
 
 export interface PostsService {
   readonly getPost: (postId: string) => Effect.Effect<SlabPost, PostsError>;
@@ -37,6 +59,12 @@ export interface PostsService {
   readonly appendToPost: (postId: string, markdown: string) => Effect.Effect<SlabPost, PostsError>;
   readonly replaceSection: (postId: string, heading: string, markdown: string) => Effect.Effect<SlabPost, PostsError>;
   readonly fullReplacePost: (postId: string, markdown: string) => Effect.Effect<SlabPost, PostsError>;
+
+  readonly createPost: (input: SlabCreatePostInput) => Effect.Effect<SlabPost, PostsError>;
+  readonly setPostState: (input: SlabPostStateUpdate) => Effect.Effect<SlabPost, PostsError>;
+  readonly syncPost: (input: SlabSyncPostInput) => Effect.Effect<SlabPost, PostsError>;
+  readonly addTopicToPost: (postId: string, topicId: string) => Effect.Effect<{ id: string; name: string }, PostsError>;
+  readonly removeTopicFromPost: (postId: string, topicId: string) => Effect.Effect<{ id: string; name: string }, PostsError>;
 }
 
 export const PostsService = Context.GenericTag<PostsService>("@services/PostsService");
@@ -137,6 +165,74 @@ export const PostsServiceLive = Layer.effect(
           const current = yield* fetchRawContent(postId);
           const patch = yield* buildFullReplaceDelta(current, markdown);
           return yield* updatePostContent(postId, patch);
+        }),
+
+      createPost: (input) =>
+        Effect.gen(function* () {
+          if (input.templateId && input.content) {
+            return yield* Effect.fail(new CreatePostInvalidArgsError({
+              message: "create_post: pass templateId OR content, not both. Use templateId for a templated post and edit_post afterward to add content; use content for a blank post seeded with content.",
+            }));
+          }
+          const data = yield* transport.request<{ createPost: any }>(CREATE_POST_MUTATION, {
+            title: input.title,
+            topicId: input.topicId ?? null,
+            templateId: input.templateId ?? null,
+          });
+          const created = data.createPost;
+          if (input.content) {
+            const delta = yield* markdownToDelta(input.content).pipe(
+              Effect.mapError((e) => new DeltaEditError({
+                kind: "parse_failure",
+                message: `failed to parse create_post content: ${e.message}`,
+              })),
+            );
+            return yield* updatePostContent(created.id, delta);
+          }
+          return yield* transformPost(created);
+        }),
+
+      setPostState: (input) =>
+        Effect.gen(function* () {
+          const data = yield* transport.request<{ updatePost: any }>(UPDATE_POST_STATE_MUTATION, {
+            id: input.postId,
+            ownerId: input.ownerId ?? null,
+            archived: input.archived ?? null,
+            published: input.published ?? null,
+            linkAccess: input.linkAccess ?? null,
+            bannerUrl: input.bannerUrl ?? null,
+          });
+          return yield* transformPost(data.updatePost);
+        }),
+
+      syncPost: (input) =>
+        Effect.gen(function* () {
+          const data = yield* transport.request<{ syncPost: any }>(SYNC_POST_MUTATION, {
+            externalId: input.externalId,
+            format: input.format,
+            content: input.content,
+            editUrl: input.editUrl,
+            readUrl: input.readUrl ?? null,
+          });
+          return yield* transformPost(data.syncPost);
+        }),
+
+      addTopicToPost: (postId, topicId) =>
+        Effect.gen(function* () {
+          const data = yield* transport.request<{ addTopicToPost: { id: string; name: string } }>(
+            ADD_TOPIC_TO_POST_MUTATION,
+            { postId, topicId },
+          );
+          return data.addTopicToPost;
+        }),
+
+      removeTopicFromPost: (postId, topicId) =>
+        Effect.gen(function* () {
+          const data = yield* transport.request<{ removeTopicFromPost: { id: string; name: string } }>(
+            REMOVE_TOPIC_FROM_POST_MUTATION,
+            { postId, topicId },
+          );
+          return data.removeTopicFromPost;
         }),
     };
   }),

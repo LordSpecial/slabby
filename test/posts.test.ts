@@ -532,4 +532,152 @@ describe("PostsService (high-level post ops)", () => {
       }
     });
   });
+
+  describe("createPost", () => {
+    test("rejects templateId + content combination", async () => {
+      const result = await Effect.runPromise(
+        posts.createPost({ title: "x", templateId: "t1", content: "body" }).pipe(Effect.either),
+      );
+      expect(result._tag).toBe("Left");
+      if (result._tag === "Left") {
+        expect(result.left._tag).toBe("CreatePostInvalidArgsError");
+      }
+    });
+
+    test("creates a blank post with title + topicId", async () => {
+      const createResp = {
+        data: {
+          createPost: {
+            id: "new1",
+            title: "Title",
+            content: [],
+            insertedAt: "2024-01-01T00:00:00Z",
+            updatedAt: "2024-01-01T00:00:00Z",
+          },
+        },
+      };
+      mockFetch.mockResolvedValue({ ok: true, json: async () => createResp });
+
+      const result = await Effect.runPromise(
+        posts.createPost({ title: "Title", topicId: "tpc" }),
+      );
+      expect(result.id).toBe("new1");
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body);
+      expect(body.query).toContain("CreatePost");
+      expect(body.variables).toEqual({ title: "Title", topicId: "tpc", templateId: null });
+    });
+
+    test("creates a post and patches body when content provided", async () => {
+      const createResp = {
+        data: {
+          createPost: {
+            id: "new2",
+            title: "T",
+            content: [],
+            insertedAt: "2024-01-01T00:00:00Z",
+            updatedAt: "2024-01-01T00:00:00Z",
+          },
+        },
+      };
+      const updateResp = {
+        data: {
+          updatePostContent: {
+            id: "new2",
+            title: "T",
+            content: [{ insert: "hello" }, { insert: "\n" }],
+            updatedAt: "2024-01-01T00:00:00Z",
+          },
+        },
+      };
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, json: async () => createResp })
+        .mockResolvedValueOnce({ ok: true, json: async () => updateResp });
+
+      const result = await Effect.runPromise(posts.createPost({ title: "T", content: "hello" }));
+      expect(result.content).toBe("hello");
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("setPostState", () => {
+    test("sends only the fields provided (nulls for absent)", async () => {
+      const updateResp = {
+        data: {
+          updatePost: {
+            id: "p1",
+            title: "T",
+            content: [],
+            insertedAt: "2024-01-01T00:00:00Z",
+            updatedAt: "2024-01-02T00:00:00Z",
+          },
+        },
+      };
+      mockFetch.mockResolvedValue({ ok: true, json: async () => updateResp });
+
+      await Effect.runPromise(posts.setPostState({ postId: "p1", archived: true }));
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body);
+      expect(body.query).toContain("UpdatePostState");
+      expect(body.variables).toEqual({
+        id: "p1",
+        ownerId: null,
+        archived: true,
+        published: null,
+        linkAccess: null,
+        bannerUrl: null,
+      });
+    });
+  });
+
+  describe("syncPost", () => {
+    test("passes externalId/format/content/editUrl through", async () => {
+      const resp = {
+        data: {
+          syncPost: {
+            id: "s1",
+            title: "Synced",
+            content: [],
+            insertedAt: "2024-01-01T00:00:00Z",
+            updatedAt: "2024-01-01T00:00:00Z",
+          },
+        },
+      };
+      mockFetch.mockResolvedValue({ ok: true, json: async () => resp });
+
+      const result = await Effect.runPromise(posts.syncPost({
+        externalId: "ext-1",
+        format: "MARKDOWN",
+        content: "# Hi",
+        editUrl: "https://src/example",
+      }));
+      expect(result.id).toBe("s1");
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body);
+      expect(body.variables).toEqual({
+        externalId: "ext-1",
+        format: "MARKDOWN",
+        content: "# Hi",
+        editUrl: "https://src/example",
+        readUrl: null,
+      });
+    });
+  });
+
+  describe("addTopicToPost / removeTopicFromPost", () => {
+    test("addTopicToPost returns the topic", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: { addTopicToPost: { id: "t1", name: "Eng" } } }),
+      });
+      const t = await Effect.runPromise(posts.addTopicToPost("p1", "t1"));
+      expect(t).toEqual({ id: "t1", name: "Eng" });
+    });
+
+    test("removeTopicFromPost returns the topic", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: { removeTopicFromPost: { id: "t1", name: "Eng" } } }),
+      });
+      const t = await Effect.runPromise(posts.removeTopicFromPost("p1", "t1"));
+      expect(t).toEqual({ id: "t1", name: "Eng" });
+    });
+  });
 });
