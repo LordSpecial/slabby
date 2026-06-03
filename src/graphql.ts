@@ -189,3 +189,89 @@ export const GET_ORGANIZATION_POSTS_QUERY = `
     }
   }
 `;
+
+export const CREATE_POST_MUTATION = `
+  mutation CreatePost($title: String, $topicId: ID, $templateId: ID) {
+    createPost(title: $title, topicId: $topicId, templateId: $templateId) {
+      id
+      title
+      content
+      insertedAt
+      updatedAt
+      publishedAt
+      archivedAt
+      version
+      owner { id name email }
+    }
+  }
+`;
+
+export const UPDATE_POST_STATE_MUTATION = `
+  mutation UpdatePostState(
+    $id: ID!,
+    $ownerId: ID,
+    $archived: Boolean,
+    $published: Boolean,
+    $linkAccess: PostLinkAccess,
+    $bannerUrl: String
+  ) {
+    updatePost(
+      id: $id,
+      ownerId: $ownerId,
+      archived: $archived,
+      published: $published,
+      linkAccess: $linkAccess,
+      bannerUrl: $bannerUrl
+    ) {
+      id
+      title
+      publishedAt
+      archivedAt
+      linkAccess
+      version
+      owner { id name email }
+    }
+  }
+`;
+
+export const SYNC_POST_MUTATION = `
+  mutation SyncPost(
+    $externalId: ID!,
+    $format: PostContentFormat!,
+    $content: String!,
+    $editUrl: String,
+    $readUrl: String
+  ) {
+    syncPost(
+      externalId: $externalId,
+      format: $format,
+      content: $content,
+      editUrl: $editUrl,
+      readUrl: $readUrl
+    ) {
+      id
+      title
+      insertedAt
+      updatedAt
+      version
+    }
+  }
+`;
+
+export const ADD_TOPIC_TO_POST_MUTATION = `
+  mutation AddTopicToPost($postId: ID!, $topicId: ID!) {
+    addTopicToPost(postId: $postId, topicId: $topicId) {
+      id
+      name
+    }
+  }
+`;
+
+export const REMOVE_TOPIC_FROM_POST_MUTATION = `
+  mutation RemoveTopicFromPost($postId: ID!, $topicId: ID!) {
+    removeTopicFromPost(postId: $postId, topicId: $topicId) {
+      id
+      name
+    }
+  }
+`;
