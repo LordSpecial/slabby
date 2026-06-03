@@ -473,4 +473,63 @@ describe("PostsService (high-level post ops)", () => {
       expect(body.variables.topicId).toBe("topic-123");
     });
   });
+
+  describe("editPost", () => {
+    test("fetches current content then sends find/replace Delta", async () => {
+      const getResp = {
+        data: {
+          post: {
+            id: "p1",
+            title: "T",
+            content: [{ insert: "Hello world.\n" }],
+            insertedAt: "2024-01-01T00:00:00Z",
+            updatedAt: "2024-01-01T00:00:00Z",
+          },
+        },
+      };
+      const updateResp = {
+        data: {
+          updatePostContent: {
+            id: "p1",
+            title: "T",
+            content: [{ insert: "Hello Slab.\n" }],
+            updatedAt: "2024-01-02T00:00:00Z",
+          },
+        },
+      };
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, json: async () => getResp })
+        .mockResolvedValueOnce({ ok: true, json: async () => updateResp });
+
+      const result = await Effect.runPromise(posts.editPost("p1", "world", "Slab"));
+      expect(result.content).toBe("Hello Slab.");
+      const updateCall = mockFetch.mock.calls[1];
+      const body = JSON.parse(updateCall?.[1]?.body);
+      expect(body.variables.delta).toEqual({
+        ops: [{ retain: 6 }, { delete: 5 }, { insert: "Slab" }],
+      });
+    });
+
+    test("propagates DeltaEditError as a tagged failure", async () => {
+      const getResp = {
+        data: {
+          post: {
+            id: "p1",
+            title: "T",
+            content: [{ insert: "Hello world.\n" }],
+            insertedAt: "2024-01-01T00:00:00Z",
+            updatedAt: "2024-01-01T00:00:00Z",
+          },
+        },
+      };
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => getResp });
+
+      const result = await Effect.runPromise(posts.editPost("p1", "absent", "x").pipe(Effect.either));
+      expect(result._tag).toBe("Left");
+      if (result._tag === "Left") {
+        expect(result.left._tag).toBe("DeltaEditError");
+        expect((result.left as any).kind).toBe("not_found");
+      }
+    });
+  });
 });

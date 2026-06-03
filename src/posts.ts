@@ -17,14 +17,26 @@ import {
 } from "./graphql.ts";
 import { contentToMarkdown, DeltaConversionError } from "./delta/delta-to-markdown.ts";
 import type { Delta as DeltaShape } from "./delta/markdown-to-delta.ts";
+import {
+  buildFindReplaceDelta,
+  buildAppendDelta,
+  buildSectionReplaceDelta,
+  buildFullReplaceDelta,
+  DeltaEditError,
+} from "./delta/edits.ts";
 
-export type PostsError = SlabApiError | SlabNetworkError | DeltaConversionError;
+export type PostsError = SlabApiError | SlabNetworkError | DeltaConversionError | DeltaEditError;
 
 export interface PostsService {
   readonly getPost: (postId: string) => Effect.Effect<SlabPost, PostsError>;
   readonly updatePostContent: (postId: string, delta: DeltaShape) => Effect.Effect<SlabPost, PostsError>;
   readonly searchPosts: (query: string) => Effect.Effect<SlabSearchResult, PostsError>;
   readonly listPosts: (topicId?: string) => Effect.Effect<SlabListResult, PostsError>;
+
+  readonly editPost: (postId: string, oldText: string, newText: string) => Effect.Effect<SlabPost, PostsError>;
+  readonly appendToPost: (postId: string, markdown: string) => Effect.Effect<SlabPost, PostsError>;
+  readonly replaceSection: (postId: string, heading: string, markdown: string) => Effect.Effect<SlabPost, PostsError>;
+  readonly fullReplacePost: (postId: string, markdown: string) => Effect.Effect<SlabPost, PostsError>;
 }
 
 export const PostsService = Context.GenericTag<PostsService>("@services/PostsService");
@@ -50,6 +62,22 @@ export const PostsServiceLive = Layer.effect(
   Effect.gen(function* () {
     const transport = yield* SlabClientService;
 
+    const fetchRawContent = (postId: string) =>
+      Effect.gen(function* () {
+        const data = yield* transport.request<{ post: { content: any } }>(GET_POST_QUERY, { id: postId });
+        const c = data.post.content;
+        return { ops: Array.isArray(c) ? c : (c?.ops ?? []) } as DeltaShape;
+      });
+
+    const updatePostContent = (postId: string, delta: DeltaShape) =>
+      Effect.gen(function* () {
+        const data = yield* transport.request<{ updatePostContent: any }>(
+          UPDATE_POST_CONTENT_MUTATION,
+          { id: postId, delta },
+        );
+        return yield* transformPost(data.updatePostContent);
+      });
+
     return {
       getPost: (postId) =>
         Effect.gen(function* () {
@@ -57,14 +85,7 @@ export const PostsServiceLive = Layer.effect(
           return yield* transformPost(data.post);
         }),
 
-      updatePostContent: (postId, delta) =>
-        Effect.gen(function* () {
-          const data = yield* transport.request<{ updatePostContent: any }>(
-            UPDATE_POST_CONTENT_MUTATION,
-            { id: postId, delta },
-          );
-          return yield* transformPost(data.updatePostContent);
-        }),
+      updatePostContent,
 
       searchPosts: (query) =>
         Effect.gen(function* () {
@@ -88,6 +109,34 @@ export const PostsServiceLive = Layer.effect(
           const raw: any[] = data.organization.posts || [];
           const posts: SlabPost[] = yield* Effect.all(raw.map(transformPost));
           return { posts, total_count: posts.length };
+        }),
+
+      editPost: (postId, oldText, newText) =>
+        Effect.gen(function* () {
+          const current = yield* fetchRawContent(postId);
+          const patch = yield* buildFindReplaceDelta(current, oldText, newText);
+          return yield* updatePostContent(postId, patch);
+        }),
+
+      appendToPost: (postId, markdown) =>
+        Effect.gen(function* () {
+          const current = yield* fetchRawContent(postId);
+          const patch = yield* buildAppendDelta(current, markdown);
+          return yield* updatePostContent(postId, patch);
+        }),
+
+      replaceSection: (postId, heading, markdown) =>
+        Effect.gen(function* () {
+          const current = yield* fetchRawContent(postId);
+          const patch = yield* buildSectionReplaceDelta(current, heading, markdown);
+          return yield* updatePostContent(postId, patch);
+        }),
+
+      fullReplacePost: (postId, markdown) =>
+        Effect.gen(function* () {
+          const current = yield* fetchRawContent(postId);
+          const patch = yield* buildFullReplaceDelta(current, markdown);
+          return yield* updatePostContent(postId, patch);
         }),
     };
   }),
