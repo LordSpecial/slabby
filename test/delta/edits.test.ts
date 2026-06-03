@@ -230,3 +230,30 @@ describe("buildSectionReplaceDelta", () => {
     ]);
   });
 });
+
+describe("buildFullReplaceDelta", () => {
+  test("identical content produces an empty patch", async () => {
+    const md = "# Title\n\nBody.";
+    const current = await Effect.runPromise(
+      (await import("../../src/delta/markdown-to-delta.ts")).markdownToDelta(md),
+    );
+    const patch = await Effect.runPromise(buildFullReplaceDelta(current, md));
+    expect(patch.ops).toEqual([]);
+  });
+
+  test("changing the body of an existing heading produces a small diff (not a full nuke)", async () => {
+    const before = "# Title\n\nold body.";
+    const after = "# Title\n\nnew body.";
+    const current = await Effect.runPromise(
+      (await import("../../src/delta/markdown-to-delta.ts")).markdownToDelta(before),
+    );
+    const patch = await Effect.runPromise(buildFullReplaceDelta(current, after));
+    const ops = patch.ops as unknown as Array<Record<string, unknown>>;
+    const hasFullNuke = ops.some(
+      (op) => "delete" in op && typeof op.delete === "number" && op.delete > 5 && ops.length === 2,
+    );
+    expect(hasFullNuke).toBe(false);
+    const hasRetainBeforeChange = ops.some((op) => "retain" in op);
+    expect(hasRetainBeforeChange).toBe(true);
+  });
+});

@@ -257,4 +257,15 @@ export const buildFullReplaceDelta = (
   current: DeltaShape,
   newMarkdown: string,
 ): Effect.Effect<DeltaShape, DeltaEditError> =>
-  Effect.fail(new DeltaEditError({ kind: "not_found", message: "stub" }));
+  Effect.gen(function* () {
+    const newDelta = yield* markdownToDelta(newMarkdown).pipe(
+      Effect.mapError((e) => new DeltaEditError({
+        kind: "parse_failure",
+        message: `failed to parse new markdown: ${e.message}`,
+      })),
+    );
+    const a = new Delta(current.ops as any);
+    const b = new Delta(newDelta.ops as any);
+    const diff = a.diff(b);
+    return { ops: diff.ops as unknown as DeltaOp[] };
+  });
