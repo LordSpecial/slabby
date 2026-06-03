@@ -135,4 +135,12 @@ describe("markdownToDelta", () => {
       { insert: "\n", attributes: { "code-block": "ts" } },
     ]);
   });
+
+  test("blockquote wraps each paragraph line with blockquote attribute", async () => {
+    const result = await Effect.runPromise(markdownToDelta("> quoted"));
+    expect(result.ops).toEqual([
+      { insert: "quoted" },
+      { insert: "\n", attributes: { blockquote: true } },
+    ]);
+  });
 });

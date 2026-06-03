@@ -84,6 +84,18 @@ function emitToken(token: Token, ops: DeltaOp[], parentAttrs: InlineAttrs): void
       }
       return;
     }
+    case "blockquote": {
+      const bq = token as Tokens.Blockquote;
+      const startIdx = ops.length;
+      for (const child of bq.tokens ?? []) emitToken(child, ops, parentAttrs);
+      for (let i = startIdx; i < ops.length; i++) {
+        const op = ops[i];
+        if (op && op.insert === "\n") {
+          op.attributes = { ...(op.attributes ?? {}), blockquote: true };
+        }
+      }
+      return;
+    }
     default:
       return;
   }
