@@ -32,14 +32,16 @@ function flatten(delta: DeltaShape): { chars: FlatOp[]; total: number } {
   const chars: FlatOp[] = [];
   let total = 0;
   delta.ops.forEach((op, opIndex) => {
-    const attrs = (op as { attributes?: Record<string, unknown> }).attributes;
-    const insert = (op as { insert?: unknown }).insert;
+    if (!("insert" in op)) return; // retain/delete ops carry no document content
+    const attrs = op.attributes;
+    const insert = op.insert;
     if (typeof insert === "string") {
       for (const ch of insert) {
         chars.push({ opIndex, text: ch, isEmbed: false, attrs });
         total += 1;
       }
-    } else if (insert !== undefined) {
+    } else {
+      // embed insert (Record<string, unknown>); counts as one character
       chars.push({ opIndex, text: "", isEmbed: true, attrs });
       total += 1;
     }
