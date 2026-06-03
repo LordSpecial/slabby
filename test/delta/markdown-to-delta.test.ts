@@ -25,4 +25,45 @@ describe("markdownToDelta", () => {
       { insert: "\n" },
     ]);
   });
+
+  test("bold emits insert with bold attribute", async () => {
+    const result = await Effect.runPromise(markdownToDelta("**hi**"));
+    expect(result.ops).toEqual([
+      { insert: "hi", attributes: { bold: true } },
+      { insert: "\n" },
+    ]);
+  });
+
+  test("italic emits insert with italic attribute", async () => {
+    const result = await Effect.runPromise(markdownToDelta("_hi_"));
+    expect(result.ops).toEqual([
+      { insert: "hi", attributes: { italic: true } },
+      { insert: "\n" },
+    ]);
+  });
+
+  test("strikethrough emits insert with strike attribute", async () => {
+    const result = await Effect.runPromise(markdownToDelta("~~hi~~"));
+    expect(result.ops).toEqual([
+      { insert: "hi", attributes: { strike: true } },
+      { insert: "\n" },
+    ]);
+  });
+
+  test("inline code emits insert with code attribute", async () => {
+    const result = await Effect.runPromise(markdownToDelta("hello `world`"));
+    expect(result.ops).toEqual([
+      { insert: "hello " },
+      { insert: "world", attributes: { code: true } },
+      { insert: "\n" },
+    ]);
+  });
+
+  test("nested bold within italic combines attributes", async () => {
+    const result = await Effect.runPromise(markdownToDelta("_**hi**_"));
+    expect(result.ops).toEqual([
+      { insert: "hi", attributes: { italic: true, bold: true } },
+      { insert: "\n" },
+    ]);
+  });
 });

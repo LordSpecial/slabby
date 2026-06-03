@@ -80,6 +80,26 @@ function emitInline(token: Token, ops: DeltaOp[], parentAttrs: InlineAttrs): voi
       pushText(ops, t.text, parentAttrs);
       return;
     }
+    case "strong": {
+      const s = token as Tokens.Strong;
+      for (const child of s.tokens ?? []) emitInline(child, ops, { ...parentAttrs, bold: true });
+      return;
+    }
+    case "em": {
+      const e = token as Tokens.Em;
+      for (const child of e.tokens ?? []) emitInline(child, ops, { ...parentAttrs, italic: true });
+      return;
+    }
+    case "del": {
+      const d = token as Tokens.Del;
+      for (const child of d.tokens ?? []) emitInline(child, ops, { ...parentAttrs, strike: true });
+      return;
+    }
+    case "codespan": {
+      const c = token as Tokens.Codespan;
+      pushText(ops, c.text, { ...parentAttrs, code: true });
+      return;
+    }
     default:
       return;
   }
