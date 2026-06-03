@@ -100,6 +100,16 @@ function emitInline(token: Token, ops: DeltaOp[], parentAttrs: InlineAttrs): voi
       pushText(ops, c.text, { ...parentAttrs, code: true });
       return;
     }
+    case "link": {
+      const l = token as Tokens.Link;
+      for (const child of l.tokens ?? []) emitInline(child, ops, { ...parentAttrs, link: l.href });
+      return;
+    }
+    case "image": {
+      const i = token as Tokens.Image;
+      ops.push({ insert: { image: i.href } });
+      return;
+    }
     default:
       return;
   }

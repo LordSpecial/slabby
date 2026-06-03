@@ -66,4 +66,28 @@ describe("markdownToDelta", () => {
       { insert: "\n" },
     ]);
   });
+
+  test("link emits insert with link attribute on the visible text", async () => {
+    const result = await Effect.runPromise(markdownToDelta("[Slab](https://slab.com)"));
+    expect(result.ops).toEqual([
+      { insert: "Slab", attributes: { link: "https://slab.com" } },
+      { insert: "\n" },
+    ]);
+  });
+
+  test("image emits embed insert with image attribute", async () => {
+    const result = await Effect.runPromise(markdownToDelta("![alt](https://example.com/x.png)"));
+    expect(result.ops).toEqual([
+      { insert: { image: "https://example.com/x.png" } },
+      { insert: "\n" },
+    ]);
+  });
+
+  test("bold link combines bold + link attributes", async () => {
+    const result = await Effect.runPromise(markdownToDelta("**[Slab](https://slab.com)**"));
+    expect(result.ops).toEqual([
+      { insert: "Slab", attributes: { bold: true, link: "https://slab.com" } },
+      { insert: "\n" },
+    ]);
+  });
 });
