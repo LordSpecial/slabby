@@ -34,9 +34,8 @@ import {
 import { ConfigService, ConfigServiceLive } from "./config.ts";
 import { SlabClientServiceLive } from "./client.ts";
 import { PostsService, PostsServiceLive } from "./posts.ts";
-import { formatPostResponse, formatSearchResults, formatListResults } from "./formatters.ts";
-import { extractPostId } from "./utils.ts";
-import { markdownToDelta } from "./delta/markdown-to-delta.ts";
+import { formatSearchResults, formatListResults } from "./formatters.ts";
+import { allPostEditTools, allPostReadTools } from "./tools/posts.ts";
 
 /**
  * The main application layer combining all services
@@ -52,33 +51,16 @@ const AppLayer = Layer.mergeAll(
 /**
  * Define MCP tool handlers using Effect
  */
-const toolHandlers = {
-  "slab__get_post": (args: any) =>
-    Effect.gen(function* () {
-      const posts = yield* PostsService;
-      const postId = yield* extractPostId(args.postId as string);
-      const post = yield* posts.getPost(postId);
-      return formatPostResponse(post);
-    }),
+const editToolHandlers: Record<string, (args: any) => Effect.Effect<string, any, PostsService>> = Object.fromEntries(
+  [...allPostReadTools, ...allPostEditTools].map((t) => [t.definition.name, t.handler]),
+);
 
-  "slab__update_post": (args: any) =>
-    Effect.gen(function* () {
-      const posts = yield* PostsService;
-      const postId = yield* extractPostId(args.postId as string);
-      // For Task 4 we keep the same nuke-and-paste behaviour to preserve
-      // backwards compatibility; Task 5 swaps this for buildFullReplaceDelta.
-      const _current = yield* posts.getPost(postId);
-      const newDelta = yield* markdownToDelta(args.content as string);
-      const result = yield* posts.updatePostContent(postId, newDelta);
-      return `Post updated successfully: ${JSON.stringify(result, null, 2)}`;
-    }),
-
+const inlineHandlers = {
   "slab__search": (args: any) =>
     Effect.gen(function* () {
       const posts = yield* PostsService;
-      const query = args.query as string;
-      const results = yield* posts.searchPosts(query);
-      return formatSearchResults(results, query);
+      const results = yield* posts.searchPosts(args.query as string);
+      return formatSearchResults(results, args.query as string);
     }),
 
   "slab__list_posts": (args: any) =>
@@ -87,6 +69,11 @@ const toolHandlers = {
       const results = yield* posts.listPosts(args.topicId as string | undefined);
       return formatListResults(results);
     }),
+};
+
+const toolHandlers: Record<string, (args: any) => Effect.Effect<string, any, PostsService>> = {
+  ...editToolHandlers,
+  ...inlineHandlers,
 };
 
 /**
@@ -109,49 +96,14 @@ function createServer() {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
       tools: [
-        {
-          name: "slab__get_post",
-          description: "Fetch a Slab post by ID or URL. Returns the post content in markdown format.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              postId: {
-                type: "string",
-                description: "The Slab post ID or full post URL (e.g., 'abc123' or 'https://team.slab.com/posts/abc123')",
-              },
-            },
-            required: ["postId"],
-          },
-        },
-        {
-          name: "slab__update_post",
-          description: "Update a Slab post with new content. Edits will be attributed to your user account.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              postId: {
-                type: "string",
-                description: "The Slab post ID or full post URL",
-              },
-              content: {
-                type: "string",
-                description: "The new content for the post in markdown format",
-              },
-            },
-            required: ["postId", "content"],
-          },
-        },
+        ...allPostReadTools.map((t) => t.definition),
+        ...allPostEditTools.map((t) => t.definition),
         {
           name: "slab__search",
           description: "Search for posts across your Slab workspace",
           inputSchema: {
             type: "object",
-            properties: {
-              query: {
-                type: "string",
-                description: "Search query string",
-              },
-            },
+            properties: { query: { type: "string", description: "Search query string" } },
             required: ["query"],
           },
         },
@@ -160,12 +112,7 @@ function createServer() {
           description: "List posts in your Slab workspace, optionally filtered by topic",
           inputSchema: {
             type: "object",
-            properties: {
-              topicId: {
-                type: "string",
-                description: "Optional topic ID to filter posts",
-              },
-            },
+            properties: { topicId: { type: "string", description: "Optional topic ID to filter posts" } },
           },
         },
       ],
