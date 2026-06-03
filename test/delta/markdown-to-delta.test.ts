@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { Effect } from "effect";
 import { markdownToDelta } from "../../src/delta/markdown-to-delta.ts";
+import { contentToMarkdown } from "../../src/delta/delta-to-markdown.ts";
 
 describe("markdownToDelta", () => {
   test("empty string returns empty ops", async () => {
@@ -199,5 +200,12 @@ describe("markdownToDelta", () => {
       { insert: "<div>x</div>" },
       { insert: "\n" },
     ]);
+  });
+
+  test("round-trip: simple doc with heading, paragraph, list", async () => {
+    const md = "# Title\n\nIntro paragraph.\n\n- a\n- b";
+    const delta = await Effect.runPromise(markdownToDelta(md));
+    const back = await Effect.runPromise(contentToMarkdown(delta));
+    expect(back.trim()).toBe("# Title\n\nIntro paragraph.\n\n-   a\n-   b");
   });
 });
