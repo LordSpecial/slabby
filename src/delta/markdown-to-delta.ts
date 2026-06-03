@@ -49,12 +49,23 @@ interface InlineAttrs {
   link?: string;
 }
 
-function emitToken(token: Token, ops: DeltaOp[], parentAttrs: InlineAttrs): void {
+interface ListContext {
+  kind: "ordered" | "bullet";
+  indent: number;
+}
+
+function emitToken(token: Token, ops: DeltaOp[], parentAttrs: InlineAttrs, listCtx?: ListContext): void {
   switch (token.type) {
     case "paragraph": {
       const p = token as Tokens.Paragraph;
       for (const child of p.tokens ?? []) emitInline(child, ops, parentAttrs);
-      ops.push({ insert: "\n" });
+      if (listCtx) {
+        const attrs: Record<string, unknown> = { list: listCtx.kind };
+        if (listCtx.indent > 0) attrs.indent = listCtx.indent;
+        ops.push({ insert: "\n", attributes: attrs });
+      } else {
+        ops.push({ insert: "\n" });
+      }
       return;
     }
     case "space":
@@ -65,6 +76,11 @@ function emitToken(token: Token, ops: DeltaOp[], parentAttrs: InlineAttrs): void
         for (const child of t.tokens) emitInline(child, ops, parentAttrs);
       } else {
         pushText(ops, t.text, parentAttrs);
+      }
+      if (listCtx) {
+        const attrs: Record<string, unknown> = { list: listCtx.kind };
+        if (listCtx.indent > 0) attrs.indent = listCtx.indent;
+        ops.push({ insert: "\n", attributes: attrs });
       }
       return;
     }
@@ -94,6 +110,20 @@ function emitToken(token: Token, ops: DeltaOp[], parentAttrs: InlineAttrs): void
           op.attributes = { ...(op.attributes ?? {}), blockquote: true };
         }
       }
+      return;
+    }
+    case "list": {
+      const list = token as Tokens.List;
+      const kind: "ordered" | "bullet" = list.ordered ? "ordered" : "bullet";
+      const indent = (listCtx?.indent ?? -1) + 1;
+      for (const item of list.items) {
+        emitToken(item, ops, parentAttrs, { kind, indent });
+      }
+      return;
+    }
+    case "list_item": {
+      const item = token as Tokens.ListItem;
+      for (const child of item.tokens ?? []) emitToken(child, ops, parentAttrs, listCtx);
       return;
     }
     default:

@@ -143,4 +143,37 @@ describe("markdownToDelta", () => {
       { insert: "\n", attributes: { blockquote: true } },
     ]);
   });
+
+  test("unordered list emits bullet items", async () => {
+    const md = "- a\n- b";
+    const result = await Effect.runPromise(markdownToDelta(md));
+    expect(result.ops).toEqual([
+      { insert: "a" },
+      { insert: "\n", attributes: { list: "bullet" } },
+      { insert: "b" },
+      { insert: "\n", attributes: { list: "bullet" } },
+    ]);
+  });
+
+  test("ordered list emits ordered items", async () => {
+    const md = "1. a\n2. b";
+    const result = await Effect.runPromise(markdownToDelta(md));
+    expect(result.ops).toEqual([
+      { insert: "a" },
+      { insert: "\n", attributes: { list: "ordered" } },
+      { insert: "b" },
+      { insert: "\n", attributes: { list: "ordered" } },
+    ]);
+  });
+
+  test("nested list emits indent attribute on inner items", async () => {
+    const md = "- outer\n  - inner";
+    const result = await Effect.runPromise(markdownToDelta(md));
+    expect(result.ops).toEqual([
+      { insert: "outer" },
+      { insert: "\n", attributes: { list: "bullet" } },
+      { insert: "inner" },
+      { insert: "\n", attributes: { list: "bullet", indent: 1 } },
+    ]);
+  });
 });
