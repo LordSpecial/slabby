@@ -64,4 +64,44 @@ describe("buildFindReplaceDelta", () => {
       { insert: "Slab" },
     ]);
   });
+
+  test("returns not_found when oldText is absent", async () => {
+    const current = { ops: [{ insert: "Hello world.\n" }] };
+    const result = await Effect.runPromise(
+      buildFindReplaceDelta(current, "absent", "x").pipe(Effect.either),
+    );
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left.kind).toBe("not_found");
+    }
+  });
+
+  test("returns ambiguous when oldText appears more than once", async () => {
+    const current = { ops: [{ insert: "ab ab ab\n" }] };
+    const result = await Effect.runPromise(
+      buildFindReplaceDelta(current, "ab", "X").pipe(Effect.either),
+    );
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left.kind).toBe("ambiguous");
+      expect(result.left.message).toContain("3 times");
+    }
+  });
+
+  test("returns mixed_attributes when span crosses differing attribute ops", async () => {
+    const current = {
+      ops: [
+        { insert: "Hel" },
+        { insert: "lo", attributes: { bold: true } },
+        { insert: " world.\n" },
+      ],
+    };
+    const result = await Effect.runPromise(
+      buildFindReplaceDelta(current, "Hello", "Hi").pipe(Effect.either),
+    );
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left.kind).toBe("mixed_attributes");
+    }
+  });
 });
