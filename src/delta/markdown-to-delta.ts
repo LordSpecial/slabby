@@ -19,10 +19,10 @@ export class MarkdownParseError extends Data.TaggedError("MarkdownParseError")<{
   readonly cause?: unknown;
 }> {}
 
-export interface DeltaOp {
-  insert: string | Record<string, unknown>;
-  attributes?: Record<string, unknown>;
-}
+export type DeltaOp =
+  | { insert: string | Record<string, unknown>; attributes?: Record<string, unknown> }
+  | { retain: number; attributes?: Record<string, unknown> }
+  | { delete: number };
 
 export interface Delta {
   ops: DeltaOp[];
@@ -106,7 +106,7 @@ function emitToken(token: Token, ops: DeltaOp[], parentAttrs: InlineAttrs, listC
       for (const child of bq.tokens ?? []) emitToken(child, ops, parentAttrs);
       for (let i = startIdx; i < ops.length; i++) {
         const op = ops[i];
-        if (op && op.insert === "\n") {
+        if (op && "insert" in op && op.insert === "\n") {
           op.attributes = { ...(op.attributes ?? {}), blockquote: true };
         }
       }

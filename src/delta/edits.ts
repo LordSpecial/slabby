@@ -103,10 +103,11 @@ export const buildFindReplaceDelta = (
       }
     }
     const ops: DeltaOp[] = [];
-    if (first > 0) ops.push({ retain: first } as unknown as DeltaOp);
-    ops.push({ delete: oldText.length } as unknown as DeltaOp);
-    const insertOp: DeltaOp = { insert: newText } as DeltaOp;
-    if (spanAttrs && Object.keys(spanAttrs).length > 0) (insertOp as any).attributes = { ...spanAttrs };
+    if (first > 0) ops.push({ retain: first });
+    ops.push({ delete: oldText.length });
+    const insertOp: DeltaOp = spanAttrs && Object.keys(spanAttrs).length > 0
+      ? { insert: newText, attributes: { ...spanAttrs } }
+      : { insert: newText };
     ops.push(insertOp);
     return { ops };
   });
@@ -132,19 +133,20 @@ export const buildAppendDelta = (
     const sepCount = Math.max(0, 2 - tailNewlines);
     const sep = "\n".repeat(sepCount);
     const ops: DeltaOp[] = [];
-    if (total > 0) ops.push({ retain: total } as unknown as DeltaOp);
+    if (total > 0) ops.push({ retain: total });
     const newOps = newDelta.ops;
     if (sep.length > 0) {
-      const firstOp = newOps[0] as { insert?: unknown; attributes?: Record<string, unknown> } | undefined;
+      const firstOp = newOps[0];
       if (
         firstOp &&
+        "insert" in firstOp &&
         typeof firstOp.insert === "string" &&
         firstOp.attributes === undefined
       ) {
-        ops.push({ insert: sep + firstOp.insert } as DeltaOp);
+        ops.push({ insert: sep + firstOp.insert });
         for (let i = 1; i < newOps.length; i++) ops.push(newOps[i]!);
       } else {
-        ops.push({ insert: sep } as DeltaOp);
+        ops.push({ insert: sep });
         for (const op of newOps) ops.push(op);
       }
     } else {
@@ -246,9 +248,9 @@ export const buildSectionReplaceDelta = (
       })),
     );
     const ops: DeltaOp[] = [];
-    if (spanStart > 0) ops.push({ retain: spanStart } as unknown as DeltaOp);
+    if (spanStart > 0) ops.push({ retain: spanStart });
     const deleteLen = spanEnd - spanStart;
-    if (deleteLen > 0) ops.push({ delete: deleteLen } as unknown as DeltaOp);
+    if (deleteLen > 0) ops.push({ delete: deleteLen });
     for (const op of newDelta.ops) ops.push(op);
     return { ops };
   });
@@ -264,8 +266,8 @@ export const buildFullReplaceDelta = (
         message: `failed to parse new markdown: ${e.message}`,
       })),
     );
-    const a = new Delta(current.ops as any);
-    const b = new Delta(newDelta.ops as any);
+    const a = new Delta(current.ops);
+    const b = new Delta(newDelta.ops);
     const diff = a.diff(b);
-    return { ops: diff.ops as unknown as DeltaOp[] };
+    return { ops: diff.ops as DeltaOp[] };
   });
