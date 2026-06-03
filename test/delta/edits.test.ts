@@ -7,6 +7,7 @@ import {
   buildFullReplaceDelta,
   DeltaEditError,
 } from "../../src/delta/edits.ts";
+import type { DeltaOp } from "../../src/delta/markdown-to-delta.ts";
 
 describe("edits scaffolding", () => {
   test("DeltaEditError tag is set", () => {
@@ -26,7 +27,7 @@ describe("buildFindReplaceDelta", () => {
       { retain: 6 },
       { delete: 5 },
       { insert: "Slab" },
-    ]);
+    ] as DeltaOp[]);
   });
 
   test("inherits the matched op's attributes onto the inserted text", async () => {
@@ -44,7 +45,7 @@ describe("buildFindReplaceDelta", () => {
       { retain: 6 },
       { delete: 5 },
       { insert: "Slab", attributes: { bold: true } },
-    ]);
+    ] as DeltaOp[]);
   });
 
   test("matches across two ops that share identical attributes (no error)", async () => {
@@ -62,7 +63,7 @@ describe("buildFindReplaceDelta", () => {
       { retain: 6 },
       { delete: 5 },
       { insert: "Slab" },
-    ]);
+    ] as DeltaOp[]);
   });
 
   test("returns not_found when oldText is absent", async () => {
@@ -114,7 +115,7 @@ describe("buildAppendDelta", () => {
       { retain: 3 },
       { insert: "\n\nBye." },
       { insert: "\n" },
-    ]);
+    ] as DeltaOp[]);
   });
 
   test("appends with one-newline separator when doc ends with one newline", async () => {
@@ -124,7 +125,7 @@ describe("buildAppendDelta", () => {
       { retain: 4 },
       { insert: "\nBye." },
       { insert: "\n" },
-    ]);
+    ] as DeltaOp[]);
   });
 
   test("appends with no separator when doc already ends with two newlines", async () => {
@@ -134,7 +135,7 @@ describe("buildAppendDelta", () => {
       { retain: 5 },
       { insert: "Bye." },
       { insert: "\n" },
-    ]);
+    ] as DeltaOp[]);
   });
 
   test("preserves >=3 trailing newlines (never trims)", async () => {
@@ -144,7 +145,7 @@ describe("buildAppendDelta", () => {
       { retain: 6 },
       { insert: "Bye." },
       { insert: "\n" },
-    ]);
+    ] as DeltaOp[]);
   });
 });
 
@@ -174,7 +175,7 @@ describe("buildSectionReplaceDelta", () => {
       { delete: 19 },
       { insert: "fresh body." },
       { insert: "\n" },
-    ]);
+    ] as DeltaOp[]);
   });
 
   test("not_found when heading text does not match any heading line", async () => {
@@ -227,7 +228,7 @@ describe("buildSectionReplaceDelta", () => {
       { delete: 9 },
       { insert: "new body." },
       { insert: "\n" },
-    ]);
+    ] as DeltaOp[]);
   });
 });
 
