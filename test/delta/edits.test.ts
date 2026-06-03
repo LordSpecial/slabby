@@ -147,3 +147,86 @@ describe("buildAppendDelta", () => {
     ]);
   });
 });
+
+describe("buildSectionReplaceDelta", () => {
+  test("replaces section body up to next heading of same level", async () => {
+    const current = {
+      ops: [
+        { insert: "Intro" },
+        { insert: "\n", attributes: { header: 1 } },
+        { insert: "before" },
+        { insert: "\n" },
+        { insert: "Mid" },
+        { insert: "\n", attributes: { header: 2 } },
+        { insert: "stale section body" },
+        { insert: "\n" },
+        { insert: "Next" },
+        { insert: "\n", attributes: { header: 2 } },
+        { insert: "after" },
+        { insert: "\n" },
+      ],
+    };
+    const patch = await Effect.runPromise(
+      buildSectionReplaceDelta(current, "Mid", "fresh body."),
+    );
+    expect(patch.ops).toEqual([
+      { retain: 17 },
+      { delete: 19 },
+      { insert: "fresh body." },
+      { insert: "\n" },
+    ]);
+  });
+
+  test("not_found when heading text does not match any heading line", async () => {
+    const current = {
+      ops: [
+        { insert: "Only heading" },
+        { insert: "\n", attributes: { header: 1 } },
+      ],
+    };
+    const result = await Effect.runPromise(
+      buildSectionReplaceDelta(current, "Missing", "x").pipe(Effect.either),
+    );
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left.kind).toBe("not_found");
+  });
+
+  test("ambiguous when heading text matches more than one heading line", async () => {
+    const current = {
+      ops: [
+        { insert: "Same" },
+        { insert: "\n", attributes: { header: 2 } },
+        { insert: "body 1\n" },
+        { insert: "Same" },
+        { insert: "\n", attributes: { header: 2 } },
+        { insert: "body 2\n" },
+      ],
+    };
+    const result = await Effect.runPromise(
+      buildSectionReplaceDelta(current, "Same", "x").pipe(Effect.either),
+    );
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left.kind).toBe("ambiguous");
+  });
+
+  test("section ends at end-of-doc when no next same-or-higher heading exists", async () => {
+    const current = {
+      ops: [
+        { insert: "Top" },
+        { insert: "\n", attributes: { header: 1 } },
+        { insert: "Mid" },
+        { insert: "\n", attributes: { header: 2 } },
+        { insert: "old body\n" },
+      ],
+    };
+    const patch = await Effect.runPromise(
+      buildSectionReplaceDelta(current, "Mid", "new body."),
+    );
+    expect(patch.ops).toEqual([
+      { retain: 8 },
+      { delete: 9 },
+      { insert: "new body." },
+      { insert: "\n" },
+    ]);
+  });
+});

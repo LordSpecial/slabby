@@ -153,12 +153,105 @@ export const buildAppendDelta = (
     return { ops };
   });
 
+interface LineRecord {
+  startIndex: number;
+  endIndex: number;
+  newlineIndex: number;
+  blockAttrs: Record<string, unknown> | undefined;
+  plainText: string;
+}
+
+function collectLines(chars: FlatOp[]): LineRecord[] {
+  const lines: LineRecord[] = [];
+  let cursor = 0;
+  let buf: string[] = [];
+  let lineStart = 0;
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i]!;
+    if (!c.isEmbed && c.text === "\n") {
+      lines.push({
+        startIndex: lineStart,
+        endIndex: cursor,
+        newlineIndex: cursor,
+        blockAttrs: c.attrs,
+        plainText: buf.join("").trim(),
+      });
+      buf = [];
+      cursor += 1;
+      lineStart = cursor;
+    } else {
+      buf.push(c.isEmbed ? "￼" : c.text);
+      cursor += 1;
+    }
+  }
+  if (buf.length > 0) {
+    lines.push({
+      startIndex: lineStart,
+      endIndex: cursor,
+      newlineIndex: -1,
+      blockAttrs: undefined,
+      plainText: buf.join("").trim(),
+    });
+  }
+  return lines;
+}
+
+function headerLevel(attrs: Record<string, unknown> | undefined): number | null {
+  if (!attrs) return null;
+  const h = attrs["header"];
+  if (typeof h === "number" && h >= 1 && h <= 6) return h;
+  return null;
+}
+
 export const buildSectionReplaceDelta = (
   current: DeltaShape,
   heading: string,
   newSectionMarkdown: string,
 ): Effect.Effect<DeltaShape, DeltaEditError> =>
-  Effect.fail(new DeltaEditError({ kind: "not_found", message: "stub" }));
+  Effect.gen(function* () {
+    const { chars, total } = flatten(current);
+    const lines = collectLines(chars);
+    const matches: { lineIdx: number; level: number }[] = [];
+    lines.forEach((ln, idx) => {
+      const lvl = headerLevel(ln.blockAttrs);
+      if (lvl !== null && ln.plainText === heading) matches.push({ lineIdx: idx, level: lvl });
+    });
+    if (matches.length === 0) {
+      return yield* Effect.fail(new DeltaEditError({
+        kind: "not_found",
+        message: `heading '${heading}' not found`,
+      }));
+    }
+    if (matches.length > 1) {
+      return yield* Effect.fail(new DeltaEditError({
+        kind: "ambiguous",
+        message: `heading '${heading}' matched ${matches.length} times; section replace requires a unique heading`,
+      }));
+    }
+    const { lineIdx, level } = matches[0]!;
+    const headingLine = lines[lineIdx]!;
+    const spanStart = headingLine.newlineIndex + 1;
+    let spanEnd = total;
+    for (let i = lineIdx + 1; i < lines.length; i++) {
+      const lvl = headerLevel(lines[i]!.blockAttrs);
+      if (lvl !== null && lvl <= level) {
+        spanEnd = lines[i]!.startIndex;
+        break;
+      }
+    }
+    const newDelta = yield* markdownToDelta(newSectionMarkdown).pipe(
+      Effect.mapError((e) => new DeltaEditError({
+        kind: "parse_failure",
+        message: `failed to parse section markdown: ${e.message}`,
+      })),
+    );
+    const ops: DeltaOp[] = [];
+    if (spanStart > 0) ops.push({ retain: spanStart } as unknown as DeltaOp);
+    const deleteLen = spanEnd - spanStart;
+    if (deleteLen > 0) ops.push({ delete: deleteLen } as unknown as DeltaOp);
+    for (const op of newDelta.ops) ops.push(op);
+    return { ops };
+  });
 
 export const buildFullReplaceDelta = (
   current: DeltaShape,
