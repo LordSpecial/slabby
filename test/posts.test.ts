@@ -680,4 +680,35 @@ describe("PostsService (high-level post ops)", () => {
       expect(t).toEqual({ id: "t1", name: "Eng" });
     });
   });
+
+  describe("getPost extended fields", () => {
+    test("surfaces version, publishedAt, archivedAt, linkAccess, topics", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: {
+            post: {
+              id: "p1",
+              title: "T",
+              content: [{ insert: "Body" }, { insert: "\n" }],
+              insertedAt: "2024-01-01T00:00:00Z",
+              updatedAt: "2024-01-02T00:00:00Z",
+              publishedAt: "2024-01-01T01:00:00Z",
+              archivedAt: null,
+              version: 7,
+              linkAccess: "INTERNAL",
+              topics: [{ id: "t1" }, { id: "t2" }],
+            },
+          },
+        }),
+      });
+
+      const p = await Effect.runPromise(posts.getPost("p1"));
+      expect(p.version).toBe(7);
+      expect(p.publishedAt).toBe("2024-01-01T01:00:00Z");
+      expect(p.archivedAt).toBeUndefined();
+      expect(p.linkAccess).toBe("INTERNAL");
+      expect(p.topics).toEqual([{ id: "t1" }, { id: "t2" }]);
+    });
+  });
 });

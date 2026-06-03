@@ -82,6 +82,13 @@ const transformPost = (post: any): Effect.Effect<SlabPost, DeltaConversionError>
       created_by: post.owner
         ? { id: post.owner.id, display_name: post.owner.name, email: post.owner.email }
         : undefined,
+      version: typeof post.version === "number" ? post.version : undefined,
+      publishedAt: post.publishedAt ?? undefined,
+      archivedAt: post.archivedAt ?? undefined,
+      linkAccess: post.linkAccess ?? undefined,
+      topics: Array.isArray(post.topics)
+        ? post.topics.map((t: any) => ({ id: t.id }))
+        : undefined,
     };
   });
 

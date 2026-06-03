@@ -24,6 +24,11 @@ export interface SlabUser {
   email?: string;
 }
 
+export interface SlabPostTopic {
+  id: string;
+  // SlimTopic has no name on this path; name available via list_topics.
+}
+
 export interface SlabPost {
   id: string;
   title: string;
@@ -33,6 +38,13 @@ export interface SlabPost {
   updated_at: string;
   created_by?: SlabUser;
   updated_by?: SlabUser;
+
+  // Newly surfaced fields:
+  version?: number;
+  publishedAt?: string;
+  archivedAt?: string;
+  linkAccess?: PostLinkAccess;
+  topics?: SlabPostTopic[];
 }
 
 export interface SlabSearchResult {

@@ -160,6 +160,7 @@ export const GET_TOPIC_POSTS_QUERY = `
         insertedAt
         publishedAt
         linkAccess
+        topics { id }
         owner {
           id
           name

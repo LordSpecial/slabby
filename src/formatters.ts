@@ -36,11 +36,21 @@ export function formatPostResponse(post: SlabPost): string {
   const updatedAt = post.updated_at ? new Date(post.updated_at).toLocaleString() : "Unknown";
   const url = post.url || "";
 
+  const meta: string[] = [];
+  meta.push(`**Author:** ${author}`);
+  meta.push(`**Last Updated:** ${updatedAt}`);
+  meta.push(`**URL:** ${url}`);
+  if (typeof post.version === "number") meta.push(`**Version:** ${post.version}`);
+  if (post.publishedAt) meta.push(`**Published:** ${new Date(post.publishedAt).toLocaleString()}`);
+  if (post.archivedAt) meta.push(`**Archived:** ${new Date(post.archivedAt).toLocaleString()}`);
+  if (post.linkAccess) meta.push(`**Link Access:** ${post.linkAccess}`);
+  if (post.topics && post.topics.length > 0) {
+    meta.push(`**Topic IDs:** ${post.topics.map((t) => t.id).join(", ")}`);
+  }
+
   return `# ${title}
 
-**Author:** ${author}
-**Last Updated:** ${updatedAt}
-**URL:** ${url}
+${meta.join("\n")}
 
 ---
 
