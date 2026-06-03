@@ -35,7 +35,7 @@ import { ConfigService, ConfigServiceLive } from "./config.ts";
 import { SlabClientServiceLive } from "./client.ts";
 import { PostsService, PostsServiceLive } from "./posts.ts";
 import { formatSearchResults, formatListResults } from "./formatters.ts";
-import { allPostEditTools, allPostReadTools } from "./tools/posts.ts";
+import { allPostEditTools, allPostReadTools, allPostMutationTools } from "./tools/posts.ts";
 
 /**
  * The main application layer combining all services
@@ -51,8 +51,9 @@ const AppLayer = Layer.mergeAll(
 /**
  * Define MCP tool handlers using Effect
  */
+const allPostTools = [...allPostReadTools, ...allPostEditTools, ...allPostMutationTools];
 const editToolHandlers: Record<string, (args: any) => Effect.Effect<string, any, PostsService>> = Object.fromEntries(
-  [...allPostReadTools, ...allPostEditTools].map((t) => [t.definition.name, t.handler]),
+  allPostTools.map((t) => [t.definition.name, t.handler]),
 );
 
 const inlineHandlers = {
@@ -96,8 +97,7 @@ function createServer() {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
       tools: [
-        ...allPostReadTools.map((t) => t.definition),
-        ...allPostEditTools.map((t) => t.definition),
+        ...allPostTools.map((t) => t.definition),
         {
           name: "slab__search",
           description: "Search for posts across your Slab workspace",
