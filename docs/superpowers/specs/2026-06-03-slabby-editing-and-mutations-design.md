@@ -13,14 +13,14 @@ Slabby today wraps four Slab GraphQL operations: `post`, `updatePostContent`, `s
 1. **Editing is destructive.** `createReplacementDelta` in `src/client.ts:145` issues `{delete: <full length>, insert: <new plain text>}`. Every update wipes all formatting (headings, lists, links, code blocks, bold/italic, images, embeds) and bloats version history with one all-text revision per call. Note: even after this work, full-document update can only preserve formatting the markdown-to-Delta layer is able to represent (see lossy edges in §4, Layer A). Constructs outside markdown's expressive range (e.g. tables, embeds with custom attributes) are still lossy on a full-document round trip; the targeted `edit_post` / `append_to_post` / `replace_section` paths avoid that problem because they leave untouched regions untouched.
 2. **Schema coverage is narrow.** Slab exposes mutations slabby never wraps: `createPost`, `deletePost`, `syncPost`, `updatePost` (state/owner/link-access/banner), `createTopic`, `updateTopic`, `deleteTopic`, `addTopicToPost`, `removeTopicFromPost`. Of these, `deletePost` is intentionally excluded from this design (see §2 non-goals — archive via `set_post_state` instead); the rest are all in scope. Topic and full-post-field reads are also absent, so agents can't discover topic ids or read `version`/`publishedAt`/`linkAccess`/`topics` on a post.
 
-Primary goal: make slabby's editing operations behave the way an MCP-driven agent actually wants — surgical, formatting-preserving, predictable. Secondary goal: round out mutation/read coverage so the same agent can create, organise, and manage content end to end.
+Primary goal: make slabby's editing operations behave the way an MCP-driven agent actually wants — surgical, predictable, and preserving markdown-expressible formatting on the regions touched. (Targeted edits leave untouched regions byte-identical; full-document update preserves only what markdown-to-Delta can express.) Secondary goal: round out mutation/read coverage so the same agent can create, organise, and manage content end to end.
 
 ## 2. Goals & non-goals
 
 **Goals**
-- Editing operations preserve existing formatting and emit minimal Delta patches.
+- Targeted editing operations (`edit_post`, `append_to_post`, `replace_section`) emit minimal Delta patches and leave untouched regions byte-identical, preserving their existing formatting. Full-document update emits a minimal diff via `quill-delta.diff` and preserves whatever formatting markdown-to-Delta can express.
 - Provide an `edit_post` tool with the same find-and-replace ergonomics as Claude Code's built-in `Edit`.
-- Add tools for: append to post, replace section under a heading, full-document update (now formatting-preserving via Delta diff).
+- Add tools for: append to post, replace section under a heading, full-document update (now less destructive — replaces the nuke-and-paste with a minimal Delta diff; preserves markdown-expressible formatting and untouched-region attributes).
 - Wrap mutations: `createPost`, `syncPost`, `updatePost` (state), `createTopic`, `updateTopic`, `deleteTopic`, `addTopicToPost`, `removeTopicFromPost`.
 - Add reads: `get_topic`, `list_topics`. Surface dropped Post fields (`version`, `publishedAt`, `archivedAt`, `linkAccess`, `topics`).
 - Split current files so no single file owns more than one domain.
@@ -122,11 +122,11 @@ All functions return a Quill Delta `{ops: [...]}` patch. Throw `DeltaEditError` 
     - **If the span crosses multiple ops with differing attributes** → throw `DeltaEditError({kind: "mixed_attributes", message: "oldText spans formatting boundaries; pick text inside a single formatted run, or use replace_section / update_post for cross-format edits"})`. v1 explicitly rejects this case. Future versions may relax by per-character composition.
     - **If the span crosses multiple ops with identical attributes** (e.g. neighbouring plain-text ops produced by markdown-to-delta segmentation) → treat as the single-op case.
 - `buildAppendDelta(currentDelta, newMarkdown)` —
-  Convert `newMarkdown` via Layer A. Compute `currentLength`. Inspect the tail of the current Delta's plain-text projection to count trailing `\n` characters (call it `tailNewlines`). Emit `[retain currentLength, insert <separator + newOps>]`, where `separator` is whatever string of `\n`s makes the join exactly two newlines (i.e. `separator = "\n".repeat(max(0, 2 - tailNewlines))`). No `delete` op required — the existing tail is preserved verbatim via the full-length retain. (Earlier draft incorrectly described this as "trim trailing `\n`"; in Delta semantics retain preserves, it cannot trim. To actually drop trailing newlines you'd need a `delete`, which is unnecessary here since two newlines is the desired separation regardless of the existing tail.)
+  Convert `newMarkdown` via Layer A. Compute `currentLength`. Inspect the tail of the current Delta's plain-text projection to count trailing `\n` characters (call it `tailNewlines`). Emit `[retain currentLength, insert <separator + newOps>]`, where `separator = "\n".repeat(max(0, 2 - tailNewlines))`. This guarantees **at least two** newlines separate existing content from appended content. The existing tail is not modified — if the document already ends with three or more newlines, those remain; we never `delete` from the tail. (We don't aggressively trim because the tail's existing structure may carry block attributes meaningful to Slab's renderer.) Earlier draft incorrectly described this as "trim trailing `\n`"; in Delta semantics `retain` preserves and cannot trim.
 - `buildSectionReplaceDelta(currentDelta, headingText, newSectionMarkdown)` —
   Line-based detection, not op-equality. Stream the current Delta's ops accumulating into "logical lines": each `\n` insert (whether on its own or embedded in a longer string) closes the current line and applies that newline's block attributes to it. For every line, record `{startIndex, endIndex, blockAttrs, plainText}` where `plainText` is the concatenation of all string-insert content on the line with surrounding whitespace stripped. A line is a "heading line" iff its newline carries `{header: N}` for some `N` in 1–6. Find the heading line whose stripped `plainText` equals `headingText`.
-  - 0 matches → `DeltaEditError("heading 'X' not found")`.
-  - 2+ matches → `DeltaEditError("heading 'X' matched N times; section replace requires a unique heading")`.
+  - 0 matches → `DeltaEditError({kind: "not_found", message: "heading 'X' not found"})`.
+  - 2+ matches → `DeltaEditError({kind: "ambiguous", message: "heading 'X' matched N times; section replace requires a unique heading"})`.
   - 1 match at level `N` → span to replace runs from the position immediately **after** the heading's trailing `\n` to the position immediately **before** the next heading line of level `M <= N` (or to end-of-doc if no such line). Replace span with Layer A output of `newSectionMarkdown`. The heading line itself is preserved.
 
   This treatment is robust to: (a) heading text split across multiple ops because of inline formatting, (b) heading text and the newline appearing in the same op or different ops, (c) blank lines and other intra-section formatting.
@@ -150,7 +150,7 @@ New tools (`src/tools/posts.ts`, `src/tools/topics.ts`):
 
 | Tool | Args | Schema mutation | Notes |
 | --- | --- | --- | --- |
-| `slab__create_post` | `{title, topicId?, content?, templateId?}` | `createPost` → optional follow-up `updatePostContent` | Returns new post with `id` and `url`. If `content` provided, second call patches body using Layer A. |
+| `slab__create_post` | `{title, topicId?, content?, templateId?}` | `createPost` → optional follow-up `updatePostContent` | Returns new post with `id` and `url`. `templateId` and `content` are **mutually exclusive in v1** — passing both throws `SlabApiError("create_post: pass templateId OR content, not both. Use templateId for a templated post and edit_post afterward to add content; use content for a blank post seeded with content.")`. If `content` provided alone, the second call (`updatePostContent`) patches the empty body using Layer A (markdown → Delta) — since the new post body is empty, an insert-only Delta is the correct shape. If `templateId` provided alone, no follow-up call; agent edits via `edit_post` / `replace_section` afterward. Tested explicitly: see §8 unit tests `posts.test.ts`. |
 | `slab__sync_post` | `{externalId, content, format: "HTML"|"MARKDOWN", editUrl, readUrl?}` | `syncPost` | Description explicitly flags: creates/updates a **readonly mirror** in Slab. Native format pass-through; no Delta conversion. |
 | `slab__set_post_state` | `{postId, archived?, published?, linkAccess?, ownerId?, bannerUrl?}` | `updatePost` (not `updatePostContent`) | Optional fields; serialises only those provided. Also serves as the archive path now that `delete_post` is out of scope. |
 | `slab__add_topic_to_post` | `{postId, topicId}` | `addTopicToPost` | |
@@ -229,7 +229,7 @@ CI: unit tests run on every push; integration tests run on a separate workflow g
 
 ## 9. Migration notes
 
-- Existing `update_post` callers continue to work — same tool name, same args. Behaviour changes from "destroy formatting" to "preserve via Delta diff". No API break.
+- Existing `update_post` callers continue to work — same tool name, same args. Behaviour changes from "delete-all then re-insert as plain text" to "minimal Delta diff via `quill-delta.diff`". Markdown-expressible formatting in the new content is preserved; constructs outside markdown's expressive range (tables, custom embed attributes) remain lossy on a full update — callers wanting to preserve those should use the targeted edit tools instead. No API break.
 - `src/deltaToMarkdown.ts` moves to `src/delta/delta-to-markdown.ts`. Update one import in `client.ts` → `posts.ts`. No external API change.
 - `package.json` adds two deps. Lockfile (`bun.lock`) regenerated.
 - README updated: new tool list, edit-vs-update guidance, new env vars for integration tests.
