@@ -7,6 +7,51 @@
 - **Apollo Studio**: https://studio.apollographql.com/public/Slab/variant/current/explorer
 - **Verification Date**: 2025-10-15
 
+## Exposed MCP Tools
+
+Slabby exposes the following MCP tools, each wrapping one or more Slab GraphQL operations.
+
+### Reads (3)
+
+| Tool | Underlying op(s) |
+|------|------------------|
+| `slab__get_post` | `post(id)` — now selecting `version`, `publishedAt`, `archivedAt`, `linkAccess`, `topics` |
+| `slab__search` | `search(query, types: [POST], first, after)` |
+| `slab__list_posts` | `topic(id).posts` or `organization.posts` |
+
+### Edit tools (4) — Quill Delta surgical edits
+
+| Tool | Underlying op | Notes |
+|------|---------------|-------|
+| `slab__edit_post` | `updatePostContent(id, delta)` | Find-and-replace on a unique substring; emits minimal `retain/delete/insert` patch. Preferred for partial edits. |
+| `slab__append_to_post` | `updatePostContent(id, delta)` | Appends markdown to end of post via `retain + insert` patch. |
+| `slab__replace_section` | `updatePostContent(id, delta)` | Replaces body under a uniquely-named heading. |
+| `slab__update_post` | `updatePostContent(id, delta)` | Full-document rewrite via minimal Delta diff (`quill-delta` diffing). For total rewrites only. |
+
+### Post lifecycle (3)
+
+| Tool | Underlying op |
+|------|---------------|
+| `slab__create_post` | `createPost(title, topicId, templateId)` |
+| `slab__set_post_state` | `updatePost(id, …)` — title, owner, archived, linkAccess, banner |
+| `slab__sync_post` | `syncPost(...)` — create/update a read-only post mirroring an external source |
+
+### Topics (7)
+
+| Tool | Underlying op |
+|------|---------------|
+| `slab__get_topic` | `topic(id)` |
+| `slab__list_topics` | `organization.topics` |
+| `slab__create_topic` | `createTopic(...)` |
+| `slab__update_topic` | `updateTopic(...)` |
+| `slab__delete_topic` | `deleteTopic(id)` — destructive, requires `confirm: true` |
+| `slab__add_topic_to_post` | `addTopicsToPost(...)` |
+| `slab__remove_topic_from_post` | `removeTopicsFromPost(...)` |
+
+### NOT exposed
+
+- **`deletePost(id)`** is intentionally NOT wrapped. Archive a post via `slab__set_post_state({archived: true})` instead. (Slab itself treats `deletePost` as destructive and rarely-reversible.)
+
 ## Verified Schema Details
 
 ### ✅ Queries

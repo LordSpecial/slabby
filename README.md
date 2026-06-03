@@ -10,11 +10,16 @@ Slabby is a [Model Context Protocol](https://modelcontextprotocol.io) server tha
 
 ## Features
 
-- 📖 **Read Slab posts** - Fetch post content by ID or URL
-- ✏️ **Update Slab posts** - Edit posts with changes attributed to you
-- 🔍 **Search Slab** - Find posts across your workspace
-- 📋 **List posts** - Browse posts by topic or tag
-- 🔐 **Secure authentication** - Uses your personal Slab API token
+- 📖 **Read** Slab posts by ID or URL (now with version, publishedAt, archivedAt, linkAccess, topics).
+- ✏️ **Surgical editing** via Quill Delta:
+  - `slab__edit_post` — find-and-replace on a unique substring (preferred for targeted edits).
+  - `slab__append_to_post` — append markdown to the end of a post.
+  - `slab__replace_section` — replace the body under a uniquely-named heading.
+  - `slab__update_post` — full-document rewrite via a minimal Delta diff (for total rewrites).
+- 🏗️ **Post lifecycle:** `slab__create_post`, `slab__set_post_state` (archive/publish/owner/linkAccess/banner), `slab__sync_post` (mirror external sources).
+- 🏷️ **Topics:** `slab__get_topic`, `slab__list_topics`, `slab__create_topic`, `slab__update_topic`, `slab__delete_topic` (destructive — requires `confirm: true`), `slab__add_topic_to_post`, `slab__remove_topic_from_post`.
+- 🔍 **Search and listing:** `slab__search`, `slab__list_posts`.
+- 🔐 Personal Slab API token, never sent to Anthropic's servers.
 
 ## Installation
 
@@ -138,6 +143,18 @@ bun run start
 npx @modelcontextprotocol/inspector bun run index.ts
 ```
 
+### Integration tests
+
+`test/integration/` contains tests that hit the real Slab API. They are skipped unless **all three** of these env vars are set:
+
+- `SLAB_API_TOKEN` — your API token.
+- `SLAB_TEAM` — your Slab subdomain.
+- `SLAB_TEST_TOPIC` — the ID of a topic used as a scratch space (the project maintains a topic named `MCP-Testing` for this purpose). Each run creates a fresh post in that topic and archives it at the end.
+
+```bash
+SLAB_API_TOKEN=... SLAB_TEAM=... SLAB_TEST_TOPIC=... bun test test/integration/
+```
+
 ## How It Works
 
 Slabby implements the [Model Context Protocol](https://modelcontextprotocol.io), which allows AI assistants like Claude to interact with external tools and services. When you ask Claude Code to read or update Slab content, it:
@@ -146,6 +163,18 @@ Slabby implements the [Model Context Protocol](https://modelcontextprotocol.io),
 2. Makes requests to the Slab GraphQL API at `https://api.slab.com/v1/graphql`
 3. Converts Quill Delta content to Markdown for readability
 4. Returns results to Claude Code
+
+## Editing model
+
+Slab stores post content in Quill Delta format. Slabby converts between Delta and Markdown so agents can read and write markdown, while the actual mutations sent to Slab are minimal Delta patches.
+
+**Prefer `slab__edit_post`** for any partial change. It locates a unique substring and emits a tight `retain / delete / insert` patch that preserves all surrounding formatting and keeps the version history clean. `oldText` must be unique in the post and contained within a single formatting run (e.g. all-plain, all-bold, all-link); spans crossing formatting boundaries are rejected.
+
+**`slab__update_post` is for full rewrites only.** It computes a minimal diff via the `quill-delta` library, but constructs not expressible in markdown (tables, custom embed attributes) are lost on a full update.
+
+**`slab__sync_post`** creates or updates a read-only post mirroring an external source. Slab users cannot edit a synced post in-place.
+
+`slab__delete_topic` is destructive and requires `confirm: true`. There is no `delete_post` — archive a post via `slab__set_post_state({archived: true})` instead.
 
 ## Security
 
