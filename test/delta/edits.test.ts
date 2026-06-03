@@ -105,3 +105,45 @@ describe("buildFindReplaceDelta", () => {
     }
   });
 });
+
+describe("buildAppendDelta", () => {
+  test("appends with two-newline separator when doc ends with no newline", async () => {
+    const current = { ops: [{ insert: "Hi." }] };
+    const patch = await Effect.runPromise(buildAppendDelta(current, "Bye."));
+    expect(patch.ops).toEqual([
+      { retain: 3 },
+      { insert: "\n\nBye." },
+      { insert: "\n" },
+    ]);
+  });
+
+  test("appends with one-newline separator when doc ends with one newline", async () => {
+    const current = { ops: [{ insert: "Hi.\n" }] };
+    const patch = await Effect.runPromise(buildAppendDelta(current, "Bye."));
+    expect(patch.ops).toEqual([
+      { retain: 4 },
+      { insert: "\nBye." },
+      { insert: "\n" },
+    ]);
+  });
+
+  test("appends with no separator when doc already ends with two newlines", async () => {
+    const current = { ops: [{ insert: "Hi.\n\n" }] };
+    const patch = await Effect.runPromise(buildAppendDelta(current, "Bye."));
+    expect(patch.ops).toEqual([
+      { retain: 5 },
+      { insert: "Bye." },
+      { insert: "\n" },
+    ]);
+  });
+
+  test("preserves >=3 trailing newlines (never trims)", async () => {
+    const current = { ops: [{ insert: "Hi.\n\n\n" }] };
+    const patch = await Effect.runPromise(buildAppendDelta(current, "Bye."));
+    expect(patch.ops).toEqual([
+      { retain: 6 },
+      { insert: "Bye." },
+      { insert: "\n" },
+    ]);
+  });
+});

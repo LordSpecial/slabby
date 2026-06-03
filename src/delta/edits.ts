@@ -115,7 +115,43 @@ export const buildAppendDelta = (
   current: DeltaShape,
   newMarkdown: string,
 ): Effect.Effect<DeltaShape, DeltaEditError> =>
-  Effect.fail(new DeltaEditError({ kind: "not_found", message: "stub" }));
+  Effect.gen(function* () {
+    const { chars, total } = flatten(current);
+    const newDelta = yield* markdownToDelta(newMarkdown).pipe(
+      Effect.mapError((e) => new DeltaEditError({
+        kind: "parse_failure",
+        message: `failed to parse appended markdown: ${e.message}`,
+      })),
+    );
+    let tailNewlines = 0;
+    for (let i = chars.length - 1; i >= 0; i--) {
+      const c = chars[i]!;
+      if (!c.isEmbed && c.text === "\n") tailNewlines += 1;
+      else break;
+    }
+    const sepCount = Math.max(0, 2 - tailNewlines);
+    const sep = "\n".repeat(sepCount);
+    const ops: DeltaOp[] = [];
+    if (total > 0) ops.push({ retain: total } as unknown as DeltaOp);
+    const newOps = newDelta.ops;
+    if (sep.length > 0) {
+      const firstOp = newOps[0] as { insert?: unknown; attributes?: Record<string, unknown> } | undefined;
+      if (
+        firstOp &&
+        typeof firstOp.insert === "string" &&
+        firstOp.attributes === undefined
+      ) {
+        ops.push({ insert: sep + firstOp.insert } as DeltaOp);
+        for (let i = 1; i < newOps.length; i++) ops.push(newOps[i]!);
+      } else {
+        ops.push({ insert: sep } as DeltaOp);
+        for (const op of newOps) ops.push(op);
+      }
+    } else {
+      for (const op of newOps) ops.push(op);
+    }
+    return { ops };
+  });
 
 export const buildSectionReplaceDelta = (
   current: DeltaShape,
