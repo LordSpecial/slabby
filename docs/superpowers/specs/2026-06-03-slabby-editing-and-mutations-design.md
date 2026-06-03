@@ -1,8 +1,8 @@
-# Slabby: Editing Engine + Full Mutation Coverage — Design
+# Slabby: Editing Engine + Expanded Mutation Coverage — Design
 
 **Status:** Draft (pending user review)
 **Date:** 2026-06-03
-**Scope:** Replace whole-document content overwrite with a real Quill Delta editing engine; add full Slab mutation coverage (create posts, sync external posts, manage topics, change post state); expose dropped read fields needed to support those mutations.
+**Scope:** Replace whole-document content overwrite with a real Quill Delta editing engine; add expanded Slab mutation coverage — every post and topic mutation in the schema **except** `deletePost` (create posts, sync external posts, manage topics, change post state, attach/detach topics); expose dropped read fields needed to support those mutations.
 
 ---
 
@@ -10,8 +10,8 @@
 
 Slabby today wraps four Slab GraphQL operations: `post`, `updatePostContent`, `search`, and `topic`/`organization.posts`. Two fundamental gaps:
 
-1. **Editing is destructive.** `createReplacementDelta` in `src/client.ts:145` issues `{delete: <full length>, insert: <new plain text>}`. Every update wipes all formatting (headings, lists, links, code blocks, bold/italic, images, embeds) and bloats version history with one all-text revision per call.
-2. **Schema coverage is narrow.** Slab exposes mutations slabby never wraps: `createPost`, `deletePost`, `syncPost`, `updatePost` (state/owner/link-access/banner), `createTopic`, `updateTopic`, `deleteTopic`, `addTopicToPost`, `removeTopicFromPost`. Topic and full-post-field reads are also absent, so agents can't discover topic ids or read `version`/`publishedAt`/`linkAccess`/`topics` on a post.
+1. **Editing is destructive.** `createReplacementDelta` in `src/client.ts:145` issues `{delete: <full length>, insert: <new plain text>}`. Every update wipes all formatting (headings, lists, links, code blocks, bold/italic, images, embeds) and bloats version history with one all-text revision per call. Note: even after this work, full-document update can only preserve formatting the markdown-to-Delta layer is able to represent (see lossy edges in §4, Layer A). Constructs outside markdown's expressive range (e.g. tables, embeds with custom attributes) are still lossy on a full-document round trip; the targeted `edit_post` / `append_to_post` / `replace_section` paths avoid that problem because they leave untouched regions untouched.
+2. **Schema coverage is narrow.** Slab exposes mutations slabby never wraps: `createPost`, `deletePost`, `syncPost`, `updatePost` (state/owner/link-access/banner), `createTopic`, `updateTopic`, `deleteTopic`, `addTopicToPost`, `removeTopicFromPost`. Of these, `deletePost` is intentionally excluded from this design (see §2 non-goals — archive via `set_post_state` instead); the rest are all in scope. Topic and full-post-field reads are also absent, so agents can't discover topic ids or read `version`/`publishedAt`/`linkAccess`/`topics` on a post.
 
 Primary goal: make slabby's editing operations behave the way an MCP-driven agent actually wants — surgical, formatting-preserving, predictable. Secondary goal: round out mutation/read coverage so the same agent can create, organise, and manage content end to end.
 
@@ -68,13 +68,19 @@ Two new Effect services in addition to existing `SlabClientService`:
 PostsService    requires SlabClientService
 TopicsService   requires SlabClientService
 
-AppLayer = mergeAll(
+const SlabClientLayer = SlabClientServiceLive.pipe(
+  Layer.provide(ConfigServiceLive),
+)
+
+AppLayer = Layer.mergeAll(
   ConfigServiceLive,
-  SlabClientServiceLive.pipe(Layer.provide(ConfigServiceLive)),
-  PostsServiceLive.pipe(Layer.provide(SlabClientServiceLive)),
-  TopicsServiceLive.pipe(Layer.provide(SlabClientServiceLive)),
+  SlabClientLayer,
+  PostsServiceLive.pipe(Layer.provide(SlabClientLayer)),
+  TopicsServiceLive.pipe(Layer.provide(SlabClientLayer)),
 )
 ```
+
+Defining `SlabClientLayer` once avoids re-providing `ConfigServiceLive` to each consumer and keeps `PostsServiceLive` / `TopicsServiceLive` requirement sets to `SlabClientService` alone.
 
 Each tool module exports `{ definition, handler }`. `index.ts` collects them into one list. Adding a tool is a one-file change.
 
@@ -109,15 +115,21 @@ All functions return a Quill Delta `{ops: [...]}` patch. Throw `DeltaEditError` 
 
 - `buildFindReplaceDelta(currentDelta, oldText, newText)` —
   Flatten `currentDelta` to plain text (insert strings concatenated; embeds counted as one character with `￼`-style placeholder). Count `indexOf(oldText)` matches.
-  - 0 matches → `DeltaEditError("oldText not found")`.
-  - 2+ matches → `DeltaEditError("oldText matched N times; add surrounding context to disambiguate")`.
-  - 1 match → walk ops to find the op containing the match's start. Emit `[retain matchStart, delete oldText.length, insert newText, attributes: <attrs of that op>]`. Inheriting attributes prevents stripping formatting when editing inside, e.g., a bold paragraph.
+  - 0 matches → `DeltaEditError({kind: "not_found", message: "oldText not found"})`.
+  - 2+ matches → `DeltaEditError({kind: "ambiguous", message: "oldText matched N times; add surrounding context to disambiguate"})`.
+  - 1 match → determine the matched span in op-space. Walk Delta ops projecting each character to its op's `attributes` (or `undefined`). Collect the set of attribute fingerprints across the matched span:
+    - **If the span lies entirely within a single op (one attribute fingerprint)** → emit `[retain matchStart, delete oldText.length, insert newText, attributes: <attrs of that op>]`. Inheriting attributes prevents stripping formatting when editing inside, e.g., a bold paragraph.
+    - **If the span crosses multiple ops with differing attributes** → throw `DeltaEditError({kind: "mixed_attributes", message: "oldText spans formatting boundaries; pick text inside a single formatted run, or use replace_section / update_post for cross-format edits"})`. v1 explicitly rejects this case. Future versions may relax by per-character composition.
+    - **If the span crosses multiple ops with identical attributes** (e.g. neighbouring plain-text ops produced by markdown-to-delta segmentation) → treat as the single-op case.
 - `buildAppendDelta(currentDelta, newMarkdown)` —
-  Convert `newMarkdown` via Layer A. Compute `currentLength`. Trim trailing `\n` characters from current and emit `[retain trimmedLength, insert "\n\n", ...newOps]`.
+  Convert `newMarkdown` via Layer A. Compute `currentLength`. Inspect the tail of the current Delta's plain-text projection to count trailing `\n` characters (call it `tailNewlines`). Emit `[retain currentLength, insert <separator + newOps>]`, where `separator` is whatever string of `\n`s makes the join exactly two newlines (i.e. `separator = "\n".repeat(max(0, 2 - tailNewlines))`). No `delete` op required — the existing tail is preserved verbatim via the full-length retain. (Earlier draft incorrectly described this as "trim trailing `\n`"; in Delta semantics retain preserves, it cannot trim. To actually drop trailing newlines you'd need a `delete`, which is unnecessary here since two newlines is the desired separation regardless of the existing tail.)
 - `buildSectionReplaceDelta(currentDelta, headingText, newSectionMarkdown)` —
-  Walk current Delta to find an insert whose value equals `headingText` followed by a `\n` op with a `{header: N}` attribute. Locate span end: next `\n` with `{header: M}` where `M <= N`, or end-of-doc. Replace span (exclusive of the heading itself) with Layer A output of `newSectionMarkdown`.
-  - Heading not found → `DeltaEditError("heading 'X' not found")`.
-  - Heading found multiple times → `DeltaEditError("heading 'X' matched N times; section replace requires unique heading")`.
+  Line-based detection, not op-equality. Stream the current Delta's ops accumulating into "logical lines": each `\n` insert (whether on its own or embedded in a longer string) closes the current line and applies that newline's block attributes to it. For every line, record `{startIndex, endIndex, blockAttrs, plainText}` where `plainText` is the concatenation of all string-insert content on the line with surrounding whitespace stripped. A line is a "heading line" iff its newline carries `{header: N}` for some `N` in 1–6. Find the heading line whose stripped `plainText` equals `headingText`.
+  - 0 matches → `DeltaEditError("heading 'X' not found")`.
+  - 2+ matches → `DeltaEditError("heading 'X' matched N times; section replace requires a unique heading")`.
+  - 1 match at level `N` → span to replace runs from the position immediately **after** the heading's trailing `\n` to the position immediately **before** the next heading line of level `M <= N` (or to end-of-doc if no such line). Replace span with Layer A output of `newSectionMarkdown`. The heading line itself is preserved.
+
+  This treatment is robust to: (a) heading text split across multiple ops because of inline formatting, (b) heading text and the newline appearing in the same op or different ops, (c) blank lines and other intra-section formatting.
 - `buildFullReplaceDelta(currentDelta, newMarkdown)` —
   Build `newDelta` via Layer A, then `currentDeltaInstance.diff(newDeltaInstance)`. Returns the minimal `retain/delete/insert` set. Replaces the current "delete all, insert plain text" nuke. Preserves version history granularity.
 
@@ -128,7 +140,7 @@ All functions return a Quill Delta `{ops: [...]}` patch. Throw `DeltaEditError` 
 | `slab__edit_post` | `{postId, oldText, newText}` | Layer B `findReplace`. **Primary edit tool.** Steering description tells agents to prefer this for partial changes. |
 | `slab__append_to_post` | `{postId, content}` | Layer B `append`. |
 | `slab__replace_section` | `{postId, heading, content}` | Layer B `sectionReplace`. |
-| `slab__update_post` | `{postId, content}` | Layer B `fullReplaceDiff`. Description: "Full-document rewrite. Use only for total replacement; prefer `edit_post` for partial changes." |
+| `slab__update_post` | `{postId, content}` | Layer B `fullReplaceDiff`. Description: "Full-document rewrite. Use only for total replacement; prefer `edit_post` for partial changes. Constructs not expressible in markdown (e.g. tables, certain embed attributes) may be lost on a full update — use the targeted edit tools to avoid touching those regions." |
 
 All four call `updatePostContent` with the resulting Delta and run through the existing `transformPost` for the response payload.
 
@@ -152,7 +164,7 @@ Enums (`PostLinkAccess`, `TopicPrivacy`, `TopicMemberEditable`, `PostContentForm
 ## 6. Read improvements
 
 - `slab__get_post` response now surfaces: `version`, `publishedAt`, `archivedAt`, `linkAccess`, `topics[]` (id+name). `owner` already returned.
-- `slab__list_posts` returns topic id+name on each post (uses `SlimPost.topics`).
+- `slab__list_posts` returns topic **ids only** on each post. The schema's `SlimTopic` exposes `id` but not `name` (`Slab@current--#@!api!@#.graphql:325`), so a name-and-id projection is not available on the slim listing path. Agents that need human-readable topic names call `slab__list_topics` once and join client-side, or call `slab__get_topic` for a specific id. (Doing the join inside `list_posts` would require an extra full `organization.topics` round trip per call; intentionally pushed to the caller, who can cache.)
 - `slab__get_topic` *(new)* — `{topicId}`. Returns name, description (rendered to markdown via Layer A's inverse), parent, ancestors, children, posts (id+title), hierarchy.
 - `slab__list_topics` *(new)* — no args. Returns flat list of topics from `organization.topics` with id, name, parent id. Agents use this to resolve human-friendly topic names to ids before `create_post` / `add_topic_to_post`.
 
@@ -163,7 +175,11 @@ Add one new tagged error:
 ```ts
 export class DeltaEditError extends Data.TaggedError("DeltaEditError")<{
   readonly message: string;
-  readonly kind: "not_found" | "ambiguous" | "parse_failure";
+  readonly kind:
+    | "not_found"
+    | "ambiguous"
+    | "mixed_attributes"
+    | "parse_failure";
 }> {}
 ```
 
@@ -180,7 +196,7 @@ Test runner: `bun test` (per `CLAUDE.md`).
 
 - `test/delta/markdown-to-delta.test.ts` — fixtures cover headings 1–6, inline emphasis, links, images, fenced code w/ language, ordered+unordered+nested lists, blockquotes, hard breaks. Round-trip `md → delta → md` must match modulo whitespace normalisation. Each lossy edge (tables, footnotes, raw HTML) has an explicit "known-lossy" test that locks current behaviour.
 - `test/delta/edits.test.ts` — pure:
-  - `findReplace`: 0 → error, 2+ → error, 1 → correct ops; preserves attrs on insertion; multiline `oldText`.
+  - `findReplace`: 0 → `not_found`, 2+ → `ambiguous`, 1 single-op → correct ops with preserved attrs, 1 spanning differing attrs → `mixed_attributes`, 1 spanning neighbouring ops with **identical** attrs → treated as single-op (no error); multiline `oldText`; embed in span counted as one character.
   - `append`: empty doc, single-`\n` tail, double-`\n` tail, embeds at tail.
   - `sectionReplace`: heading found / not found / multiple same-level (error) / nested-level boundary respected / end-of-doc span.
   - `fullReplaceDiff`: identical → empty diff; reorder paragraphs → minimal diff (asserts no full-document delete op present); format-only change → attribute-only ops.
@@ -201,7 +217,7 @@ Skipped unless both env vars present:
 3. `edit_post({oldText, newText})` → `get_post(id)` → assert exactly that one substring changed and surrounding text and formatting are intact.
 4. `append_to_post({content: "..."})` → assert append at tail; original body byte-identical above the join.
 5. `replace_section({heading: "Section A", content: "..."})` → assert section swap and that the heading itself, plus the next heading, are intact.
-6. `update_post({content: <full new markdown>})` → `get_post(id)` → assert `version` incremented by exactly 1 (proving Delta-diff path, not nuke-and-paste, which would produce more ops but still one version bump; the real assertion is on the diff shape, captured by intercepting the GraphQL request payload via a wrapper around `fetch` in test mode).
+6. `update_post({content: <full new markdown>})` → `get_post(id)` → assert resulting content round-trips. **Diff-shape assertion** is captured by intercepting the GraphQL request payload via a `fetch` wrapper installed in test mode: for an edit that touches only the middle of the document, the outgoing Delta must contain at least one `retain` op preceding the change and must not be a single `{delete: <full length>}` followed by an `insert`. The `version` field is observed for sanity but not used as proof of diff path (any single mutation increments version by one).
 7. `add_topic_to_post` then `remove_topic_from_post`, if a second topic id is available via `SLAB_TEST_TOPIC_SECONDARY`; else skip step.
 8. Cleanup: `set_post_state({postId, archived: true})`. (Archive is the cleanup path now that `delete_post` is out of scope.)
 
