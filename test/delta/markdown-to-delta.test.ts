@@ -106,4 +106,33 @@ describe("markdownToDelta", () => {
       { insert: "\n", attributes: { header: 3 } },
     ]);
   });
+
+  test("fenced code block with language emits inserts then newline with code-block=lang", async () => {
+    const md = "```ts\nconst x = 1;\n```";
+    const result = await Effect.runPromise(markdownToDelta(md));
+    expect(result.ops).toEqual([
+      { insert: "const x = 1;" },
+      { insert: "\n", attributes: { "code-block": "ts" } },
+    ]);
+  });
+
+  test("fenced code block without language uses 'plain'", async () => {
+    const md = "```\nhello\n```";
+    const result = await Effect.runPromise(markdownToDelta(md));
+    expect(result.ops).toEqual([
+      { insert: "hello" },
+      { insert: "\n", attributes: { "code-block": "plain" } },
+    ]);
+  });
+
+  test("multi-line fenced code block puts each line on its own code-block newline", async () => {
+    const md = "```ts\na\nb\n```";
+    const result = await Effect.runPromise(markdownToDelta(md));
+    expect(result.ops).toEqual([
+      { insert: "a" },
+      { insert: "\n", attributes: { "code-block": "ts" } },
+      { insert: "b" },
+      { insert: "\n", attributes: { "code-block": "ts" } },
+    ]);
+  });
 });

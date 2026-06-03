@@ -74,6 +74,16 @@ function emitToken(token: Token, ops: DeltaOp[], parentAttrs: InlineAttrs): void
       ops.push({ insert: "\n", attributes: { header: h.depth } });
       return;
     }
+    case "code": {
+      const c = token as Tokens.Code;
+      const lang = (c.lang && c.lang.trim().length > 0) ? c.lang.trim() : "plain";
+      const lines = c.text.split("\n");
+      for (const line of lines) {
+        if (line.length > 0) ops.push({ insert: line });
+        ops.push({ insert: "\n", attributes: { "code-block": lang } });
+      }
+      return;
+    }
     default:
       return;
   }
