@@ -33,9 +33,11 @@ import {
 
 import { ConfigService, ConfigServiceLive } from "./config.ts";
 import { SlabClientServiceLive } from "./client.ts";
-import { PostsService, PostsServiceLive } from "./posts.ts";
-import { formatSearchResults, formatListResults } from "./formatters.ts";
+import { PostsServiceLive } from "./posts.ts";
+import { TopicsServiceLive } from "./topics.ts";
 import { allPostEditTools, allPostReadTools, allPostMutationTools } from "./tools/posts.ts";
+import { allTopicTools } from "./tools/topics.ts";
+import { allSearchTools } from "./tools/search.ts";
 
 /**
  * The main application layer combining all services
@@ -46,36 +48,25 @@ const AppLayer = Layer.mergeAll(
   ConfigServiceLive,
   SlabClientLayer,
   PostsServiceLive.pipe(Layer.provide(SlabClientLayer)),
+  TopicsServiceLive.pipe(Layer.provide(SlabClientLayer)),
 );
 
 /**
- * Define MCP tool handlers using Effect
+ * Unified tool registry. Every tool is a `ToolModule` exporting its
+ * MCP definition and an Effect-based handler. The MCP server's list and
+ * call handlers are driven entirely by this registry.
  */
-const allPostTools = [...allPostReadTools, ...allPostEditTools, ...allPostMutationTools];
-const editToolHandlers: Record<string, (args: any) => Effect.Effect<string, any, PostsService>> = Object.fromEntries(
-  allPostTools.map((t) => [t.definition.name, t.handler]),
-);
+const allTools = [
+  ...allPostReadTools,
+  ...allPostEditTools,
+  ...allPostMutationTools,
+  ...allTopicTools,
+  ...allSearchTools,
+];
 
-const inlineHandlers = {
-  "slab__search": (args: any) =>
-    Effect.gen(function* () {
-      const posts = yield* PostsService;
-      const results = yield* posts.searchPosts(args.query as string);
-      return formatSearchResults(results, args.query as string);
-    }),
-
-  "slab__list_posts": (args: any) =>
-    Effect.gen(function* () {
-      const posts = yield* PostsService;
-      const results = yield* posts.listPosts(args.topicId as string | undefined);
-      return formatListResults(results);
-    }),
-};
-
-const toolHandlers: Record<string, (args: any) => Effect.Effect<string, any, PostsService>> = {
-  ...editToolHandlers,
-  ...inlineHandlers,
-};
+const toolHandlers: Record<string, (args: any) => Effect.Effect<string, any>> = Object.fromEntries(
+  allTools.map((t) => [t.definition.name, t.handler]),
+) as Record<string, (args: any) => Effect.Effect<string, any>>;
 
 /**
  * Create and configure the MCP server
@@ -94,30 +85,9 @@ function createServer() {
   );
 
   // Register tool list handler
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
-      tools: [
-        ...allPostTools.map((t) => t.definition),
-        {
-          name: "slab__search",
-          description: "Search for posts across your Slab workspace",
-          inputSchema: {
-            type: "object",
-            properties: { query: { type: "string", description: "Search query string" } },
-            required: ["query"],
-          },
-        },
-        {
-          name: "slab__list_posts",
-          description: "List posts in your Slab workspace, optionally filtered by topic",
-          inputSchema: {
-            type: "object",
-            properties: { topicId: { type: "string", description: "Optional topic ID to filter posts" } },
-          },
-        },
-      ],
-    };
-  });
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: allTools.map((t) => t.definition),
+  }));
 
   // Register tool call handler
   server.setRequestHandler(CallToolRequestSchema, async (request) => {

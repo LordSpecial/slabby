@@ -18,7 +18,13 @@
  * Response formatting functions for MCP tool outputs
  */
 
-import type { SlabPost, SlabSearchResult, SlabListResult } from "./types.ts";
+import type {
+  SlabPost,
+  SlabSearchResult,
+  SlabListResult,
+  SlabTopicDetails,
+  SlabTopicSummary,
+} from "./types.ts";
 
 /**
  * Formats a single post response in a readable markdown format
@@ -96,4 +102,44 @@ export function formatListResults(results: SlabListResult): string {
   }
 
   return output;
+}
+
+export function formatTopicResponse(topic: SlabTopicDetails): string {
+  const lines: string[] = [];
+  lines.push(`# Topic: ${topic.name}`);
+  lines.push("");
+  lines.push(`**ID:** ${topic.id}`);
+  if (topic.privacy) lines.push(`**Privacy:** ${topic.privacy}`);
+  if (topic.parent) lines.push(`**Parent:** ${topic.parent.name} (${topic.parent.id})`);
+  if (topic.ancestors && topic.ancestors.length > 0) {
+    lines.push(`**Ancestors:** ${topic.ancestors.map((a) => `${a.name} (${a.id})`).join(" / ")}`);
+  }
+  if (topic.children && topic.children.length > 0) {
+    lines.push(`**Children:** ${topic.children.map((c) => `${c.name} (${c.id})`).join(", ")}`);
+  }
+  if (topic.description) {
+    lines.push("");
+    lines.push("## Description");
+    lines.push("");
+    lines.push(topic.description);
+  }
+  if (topic.posts && topic.posts.length > 0) {
+    lines.push("");
+    lines.push("## Posts");
+    for (const p of topic.posts) {
+      lines.push(`- ${p.title} (${p.id})`);
+    }
+  }
+  return lines.join("\n");
+}
+
+export function formatTopicList(topics: SlabTopicSummary[]): string {
+  if (topics.length === 0) return "No topics found.";
+  const lines = ["# Topics", "", `Found ${topics.length} topic(s):`, ""];
+  for (const t of topics) {
+    const parent = t.parentId ? ` (parent: ${t.parentId})` : "";
+    const priv = t.privacy ? ` [${t.privacy}]` : "";
+    lines.push(`- ${t.name} — ${t.id}${parent}${priv}`);
+  }
+  return lines.join("\n");
 }

@@ -275,3 +275,102 @@ export const REMOVE_TOPIC_FROM_POST_MUTATION = `
     }
   }
 `;
+
+export const GET_TOPIC_QUERY = `
+  query GetTopic($id: ID!) {
+    topic(id: $id) {
+      id
+      name
+      description
+      privacy
+      memberEditable
+      inheritParent
+      parent { id name }
+      ancestors { id name }
+      children { id name }
+      posts {
+        id
+        title
+        publishedAt
+        archivedAt
+        linkAccess
+      }
+      hierarchy
+    }
+  }
+`;
+
+export const LIST_TOPICS_QUERY = `
+  query ListTopics {
+    organization {
+      id
+      topics {
+        id
+        name
+        parent { id }
+        privacy
+      }
+    }
+  }
+`;
+
+export const CREATE_TOPIC_MUTATION = `
+  mutation CreateTopic(
+    $name: String!,
+    $description: Json,
+    $parentId: ID,
+    $memberEditable: TopicMemberEditable,
+    $privacy: TopicPrivacy,
+    $inheritParent: Boolean
+  ) {
+    createTopic(
+      name: $name,
+      description: $description,
+      parentId: $parentId,
+      memberEditable: $memberEditable,
+      privacy: $privacy,
+      inheritParent: $inheritParent
+    ) {
+      id
+      name
+    }
+  }
+`;
+
+export const UPDATE_TOPIC_MUTATION = `
+  mutation UpdateTopic(
+    $id: ID!,
+    $name: String,
+    $description: Json,
+    $parentId: ID,
+    $memberEditable: TopicMemberEditable,
+    $privacy: TopicPrivacy,
+    $inheritParent: Boolean,
+    $propagatePrivacy: Boolean,
+    $bannerUrl: String
+  ) {
+    updateTopic(
+      id: $id,
+      name: $name,
+      description: $description,
+      parentId: $parentId,
+      memberEditable: $memberEditable,
+      privacy: $privacy,
+      inheritParent: $inheritParent,
+      propagatePrivacy: $propagatePrivacy,
+      bannerUrl: $bannerUrl
+    ) {
+      id
+      name
+    }
+  }
+`;
+
+export const DELETE_TOPIC_MUTATION = `
+  mutation DeleteTopic($id: ID!) {
+    deleteTopic(id: $id) {
+      id
+      name
+    }
+  }
+`;

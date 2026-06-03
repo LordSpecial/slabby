@@ -76,3 +76,51 @@ export interface SlabSyncPostInput {
   editUrl: string;
   readUrl?: string;
 }
+
+export type TopicPrivacy = "OPEN" | "PRIVATE" | "SECRET" | "PUBLIC";
+export type TopicMemberEditable = "ALL" | "POST" | "NONE";
+
+export interface SlabTopicRef {
+  id: string;
+  name: string;
+}
+
+export interface SlabTopicDetails extends SlabTopicRef {
+  description?: string;       // rendered markdown
+  privacy?: TopicPrivacy;
+  memberEditable?: TopicMemberEditable;
+  inheritParent?: boolean;
+  parent?: SlabTopicRef;
+  ancestors?: SlabTopicRef[];
+  children?: SlabTopicRef[];
+  posts?: Array<{ id: string; title: string; publishedAt?: string; archivedAt?: string; linkAccess?: PostLinkAccess }>;
+  hierarchy?: string[];
+}
+
+export interface SlabTopicSummary {
+  id: string;
+  name: string;
+  parentId?: string;
+  privacy?: TopicPrivacy;
+}
+
+export interface SlabCreateTopicInput {
+  name: string;
+  description?: string;       // markdown, converted to Delta JSON via markdownToDelta
+  parentId?: string;
+  memberEditable?: TopicMemberEditable;
+  privacy?: TopicPrivacy;
+  inheritParent?: boolean;
+}
+
+export interface SlabUpdateTopicInput {
+  topicId: string;
+  name?: string;
+  description?: string;
+  parentId?: string;
+  memberEditable?: TopicMemberEditable;
+  privacy?: TopicPrivacy;
+  inheritParent?: boolean;
+  propagatePrivacy?: boolean;
+  bannerUrl?: string;
+}

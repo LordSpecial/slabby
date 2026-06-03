@@ -15,7 +15,7 @@ export interface ToolModule {
     description: string;
     inputSchema: Record<string, unknown>;
   };
-  handler: (args: any) => Effect.Effect<string, any, PostsService>;
+  handler: (args: any) => Effect.Effect<string, any, any>;
 }
 
 export const getPost: ToolModule = {
