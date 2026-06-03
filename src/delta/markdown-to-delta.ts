@@ -126,6 +126,15 @@ function emitToken(token: Token, ops: DeltaOp[], parentAttrs: InlineAttrs, listC
       for (const child of item.tokens ?? []) emitToken(child, ops, parentAttrs, listCtx);
       return;
     }
+    case "html": {
+      const h = token as Tokens.HTML;
+      pushText(ops, h.text, parentAttrs);
+      ops.push({ insert: "\n" });
+      return;
+    }
+    case "table": {
+      return;
+    }
     default:
       return;
   }
@@ -166,6 +175,10 @@ function emitInline(token: Token, ops: DeltaOp[], parentAttrs: InlineAttrs): voi
     case "image": {
       const i = token as Tokens.Image;
       ops.push({ insert: { image: i.href } });
+      return;
+    }
+    case "br": {
+      ops.push({ insert: "\n" });
       return;
     }
     default:

@@ -176,4 +176,28 @@ describe("markdownToDelta", () => {
       { insert: "\n", attributes: { list: "bullet", indent: 1 } },
     ]);
   });
+
+  test("hard break emits a single newline insert", async () => {
+    const result = await Effect.runPromise(markdownToDelta("a  \nb"));
+    expect(result.ops).toEqual([
+      { insert: "a" },
+      { insert: "\n" },
+      { insert: "b" },
+      { insert: "\n" },
+    ]);
+  });
+
+  test("table is silently dropped (known-lossy v1)", async () => {
+    const md = "| a | b |\n|---|---|\n| 1 | 2 |";
+    const result = await Effect.runPromise(markdownToDelta(md));
+    expect(result.ops).toEqual([]);
+  });
+
+  test("raw HTML is passed through as plain text (known-lossy v1)", async () => {
+    const result = await Effect.runPromise(markdownToDelta("<div>x</div>"));
+    expect(result.ops).toEqual([
+      { insert: "<div>x</div>" },
+      { insert: "\n" },
+    ]);
+  });
 });
