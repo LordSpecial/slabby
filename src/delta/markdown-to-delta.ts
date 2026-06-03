@@ -11,6 +11,8 @@
  */
 
 import { Effect, Data } from "effect";
+import { marked } from "marked";
+import type { Token, Tokens } from "marked";
 
 export class MarkdownParseError extends Data.TaggedError("MarkdownParseError")<{
   readonly message: string;
@@ -26,6 +28,80 @@ export interface Delta {
   ops: DeltaOp[];
 }
 
-export const markdownToDelta = (markdown: string): Effect.Effect<Delta, MarkdownParseError> => {
-  return Effect.succeed({ ops: [] }); // placeholder, filled in by subsequent steps
-};
+export const markdownToDelta = (markdown: string): Effect.Effect<Delta, MarkdownParseError> =>
+  Effect.try({
+    try: () => {
+      const tokens = marked.lexer(markdown);
+      const ops: DeltaOp[] = [];
+      for (const token of tokens) {
+        emitToken(token, ops, {});
+      }
+      return { ops };
+    },
+    catch: (error) => new MarkdownParseError({ message: `marked lex failed: ${error}`, cause: error }),
+  });
+
+interface InlineAttrs {
+  bold?: true;
+  italic?: true;
+  strike?: true;
+  code?: true;
+  link?: string;
+}
+
+function emitToken(token: Token, ops: DeltaOp[], parentAttrs: InlineAttrs): void {
+  switch (token.type) {
+    case "paragraph": {
+      const p = token as Tokens.Paragraph;
+      for (const child of p.tokens ?? []) emitInline(child, ops, parentAttrs);
+      ops.push({ insert: "\n" });
+      return;
+    }
+    case "space":
+      return;
+    case "text": {
+      const t = token as Tokens.Text;
+      if (t.tokens && t.tokens.length > 0) {
+        for (const child of t.tokens) emitInline(child, ops, parentAttrs);
+      } else {
+        pushText(ops, t.text, parentAttrs);
+      }
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+function emitInline(token: Token, ops: DeltaOp[], parentAttrs: InlineAttrs): void {
+  switch (token.type) {
+    case "text": {
+      const t = token as Tokens.Text;
+      pushText(ops, t.text, parentAttrs);
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+function pushText(ops: DeltaOp[], text: string, attrs: InlineAttrs): void {
+  if (text.length === 0) return;
+  const op: DeltaOp = { insert: text };
+  if (hasAttrs(attrs)) op.attributes = attrsToObject(attrs);
+  ops.push(op);
+}
+
+function hasAttrs(attrs: InlineAttrs): boolean {
+  return Boolean(attrs.bold || attrs.italic || attrs.strike || attrs.code || attrs.link);
+}
+
+function attrsToObject(attrs: InlineAttrs): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (attrs.bold) out.bold = true;
+  if (attrs.italic) out.italic = true;
+  if (attrs.strike) out.strike = true;
+  if (attrs.code) out.code = true;
+  if (attrs.link) out.link = attrs.link;
+  return out;
+}
