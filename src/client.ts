@@ -30,7 +30,7 @@ import {
   GET_TOPIC_POSTS_QUERY,
   GET_ORGANIZATION_POSTS_QUERY,
 } from "./graphql.ts";
-import { contentToMarkdown, DeltaConversionError } from "./deltaToMarkdown.ts";
+import { contentToMarkdown, DeltaConversionError } from "./delta/delta-to-markdown.ts";
 
 export class SlabApiError extends Data.TaggedError("SlabApiError")<{
   readonly message: string;

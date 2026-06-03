@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { Effect } from "effect";
-import { deltaToMarkdown, contentToMarkdown, DeltaConversionError } from "../src/deltaToMarkdown.ts";
+import { deltaToMarkdown, contentToMarkdown, DeltaConversionError } from "../../src/delta/delta-to-markdown.ts";
 
 describe("deltaToMarkdown", () => {
   test("should convert simple text delta to markdown", async () => {
