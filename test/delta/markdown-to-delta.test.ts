@@ -90,4 +90,20 @@ describe("markdownToDelta", () => {
       { insert: "\n" },
     ]);
   });
+
+  test("h1 emits content then newline with header=1", async () => {
+    const result = await Effect.runPromise(markdownToDelta("# Title"));
+    expect(result.ops).toEqual([
+      { insert: "Title" },
+      { insert: "\n", attributes: { header: 1 } },
+    ]);
+  });
+
+  test("h3 with inline bold preserves bold and emits header=3", async () => {
+    const result = await Effect.runPromise(markdownToDelta("### **Bold**"));
+    expect(result.ops).toEqual([
+      { insert: "Bold", attributes: { bold: true } },
+      { insert: "\n", attributes: { header: 3 } },
+    ]);
+  });
 });

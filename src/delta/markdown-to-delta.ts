@@ -68,6 +68,12 @@ function emitToken(token: Token, ops: DeltaOp[], parentAttrs: InlineAttrs): void
       }
       return;
     }
+    case "heading": {
+      const h = token as Tokens.Heading;
+      for (const child of h.tokens ?? []) emitInline(child, ops, parentAttrs);
+      ops.push({ insert: "\n", attributes: { header: h.depth } });
+      return;
+    }
     default:
       return;
   }
