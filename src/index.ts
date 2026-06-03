@@ -32,14 +32,22 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { ConfigService, ConfigServiceLive } from "./config.ts";
-import { SlabClientService, SlabClientServiceLive } from "./client.ts";
+import { SlabClientServiceLive } from "./client.ts";
+import { PostsService, PostsServiceLive } from "./posts.ts";
 import { formatPostResponse, formatSearchResults, formatListResults } from "./formatters.ts";
 import { extractPostId } from "./utils.ts";
+import { markdownToDelta } from "./delta/markdown-to-delta.ts";
 
 /**
  * The main application layer combining all services
  */
-const AppLayer = Layer.mergeAll(ConfigServiceLive, SlabClientServiceLive.pipe(Layer.provide(ConfigServiceLive)));
+const SlabClientLayer = SlabClientServiceLive.pipe(Layer.provide(ConfigServiceLive));
+
+const AppLayer = Layer.mergeAll(
+  ConfigServiceLive,
+  SlabClientLayer,
+  PostsServiceLive.pipe(Layer.provide(SlabClientLayer)),
+);
 
 /**
  * Define MCP tool handlers using Effect
@@ -47,33 +55,37 @@ const AppLayer = Layer.mergeAll(ConfigServiceLive, SlabClientServiceLive.pipe(La
 const toolHandlers = {
   "slab__get_post": (args: any) =>
     Effect.gen(function* () {
-      const client = yield* SlabClientService;
+      const posts = yield* PostsService;
       const postId = yield* extractPostId(args.postId as string);
-      const post = yield* client.getPost(postId);
+      const post = yield* posts.getPost(postId);
       return formatPostResponse(post);
     }),
 
   "slab__update_post": (args: any) =>
     Effect.gen(function* () {
-      const client = yield* SlabClientService;
+      const posts = yield* PostsService;
       const postId = yield* extractPostId(args.postId as string);
-      const result = yield* client.updatePost(postId, args.content as string);
+      // For Task 4 we keep the same nuke-and-paste behaviour to preserve
+      // backwards compatibility; Task 5 swaps this for buildFullReplaceDelta.
+      const _current = yield* posts.getPost(postId);
+      const newDelta = yield* markdownToDelta(args.content as string);
+      const result = yield* posts.updatePostContent(postId, newDelta);
       return `Post updated successfully: ${JSON.stringify(result, null, 2)}`;
     }),
 
   "slab__search": (args: any) =>
     Effect.gen(function* () {
-      const client = yield* SlabClientService;
+      const posts = yield* PostsService;
       const query = args.query as string;
-      const results = yield* client.searchPosts(query);
+      const results = yield* posts.searchPosts(query);
       return formatSearchResults(results, query);
     }),
 
   "slab__list_posts": (args: any) =>
     Effect.gen(function* () {
-      const client = yield* SlabClientService;
-      const posts = yield* client.listPosts(args.topicId as string | undefined);
-      return formatListResults(posts);
+      const posts = yield* PostsService;
+      const results = yield* posts.listPosts(args.topicId as string | undefined);
+      return formatListResults(results);
     }),
 };
 
